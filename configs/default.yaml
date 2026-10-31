@@ -47,6 +47,18 @@ splits:
   group_column: kepid
   filename: splits.csv  # saved under paths.processed_dir
 
+tabular:
+  # HistGradientBoostingClassifier parameters (fixed; early stopping is disabled because its
+  # internal validation split would not be grouped by host star).
+  params:
+    learning_rate: 0.05
+    max_iter: 300
+    max_leaf_nodes: 15
+    min_samples_leaf: 20
+    l2_regularization: 1.0
+  permutation_repeats: 5
+  model_filename: tabular_hgb.joblib  # saved under paths.models_dir
+
 views:
   global_bins: 2001
   local_bins: 201
