@@ -28,7 +28,7 @@ Feature-group ablation (pooled out-of-fold PR-AUC, same folds and parameters):
 - The false positives are largely easy. 48% have `koi_prad` > 20 Earth radii (stellar
   eclipsing binaries) against 0.6% of confirmed planets, and 45% carry the centroid-offset
   flag, which the `koi_dikco_*`/`koi_dicco_*` diagnostics measure directly.
-- Every false positive in the sample has at least one Robovetter flag set, and those flags are
+- All but one of the 3,946 false positives in the sample carry at least one Robovetter flag, and those flags are
   computed from the same transit-shape and centroid diagnostics used here. The baseline is
   therefore largely re-learning the vetting rules that produced the labels. That is
   legitimate (these features were available before vetting), but it means the baseline sets a

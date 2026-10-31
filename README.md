@@ -24,11 +24,13 @@ python scripts/inspect_catalogue.py    # report -> outputs/catalogue_inspection.
 python scripts/audit_leakage.py --strict  # report -> outputs/leakage_audit_results.md
 python scripts/make_splits.py           # grouped splits -> data/processed/splits.csv
 python scripts/train_tabular.py         # CV report -> outputs/tabular_cv.md, model -> models/
+python scripts/train_tabular.py --groups transit stellar --name tabular_lc  # CNN-comparable baseline
 python scripts/build_views.py --workers 8  # light curves -> data/processed/views/ (resumable)
 python scripts/train_cnn.py             # CV report -> outputs/cnn_cv.md, model -> models/
+python scripts/evaluate.py --split dev   # PR comparison on dev folds; --split test once, at the end
 ```
 
-Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md). Tabular baseline: [docs/tabular_baseline.md](docs/tabular_baseline.md). Light-curve pipeline: [docs/lightcurve_pipeline.md](docs/lightcurve_pipeline.md).
+Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md). Tabular baseline: [docs/tabular_baseline.md](docs/tabular_baseline.md). Light-curve pipeline: [docs/lightcurve_pipeline.md](docs/lightcurve_pipeline.md). Evaluation protocol: [docs/evaluation.md](docs/evaluation.md).
 
 ## Layout
 
