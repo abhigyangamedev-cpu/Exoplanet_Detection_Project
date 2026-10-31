@@ -24,7 +24,19 @@ def config(tmp_path):
 
 def views(seed):
     rng = np.random.default_rng(seed)
-    return Views(rng.normal(size=11), rng.normal(size=5), 0.0, 0.25, 40 + seed)
+    return Views(
+        global_view=rng.normal(size=11),
+        local_view=rng.normal(size=5),
+        odd_view=rng.normal(size=5),
+        even_view=rng.normal(size=5),
+        secondary_view=rng.normal(size=5),
+        global_empty=0.0,
+        local_empty=0.25,
+        odd_empty=0.0,
+        even_empty=0.0,
+        secondary_empty=0.5,
+        n_in_transit=40 + seed,
+    )
 
 
 def test_ephemerides_converts_hours_and_skips_incomplete():
@@ -51,6 +63,7 @@ def test_save_and_load_roundtrip(config):
     assert list(df.index) == ["K1.01", "K1.02", "K2.01"]
     assert list(df["kepid"]) == [100, 100, 200]
     np.testing.assert_array_equal(df.loc["K1.02", "global_view"], views(2).global_view)
+    np.testing.assert_array_equal(df.loc["K1.02", "secondary_view"], views(2).secondary_view)
     assert df.loc["K2.01", "n_in_transit"] == 43 and df.loc["K1.01", "local_empty"] == 0.25
 
     subset = load_views(config, pd.Series(["K2.01", "K9.01"]))
@@ -99,3 +112,20 @@ def test_select_stars_test_first_and_dev_capped():
     pd.testing.assert_frame_equal(sel, again)
     full = select_stars(splits, dev_stars=None, built=built, seed=0)
     assert len(full) == 20
+
+
+def test_complete_cache_files_detects_missing_quarters(config):
+    from exoplanet.data.lightcurves import complete_cache_files
+
+    root = config["paths"]["lightcurve_dir"] / "mastDownload" / "Kepler"
+    full = root / "kplr000000100_lc_Q0111"
+    full.mkdir(parents=True)
+    for q in range(3):
+        (full / f"kplr000000100-{q}_llc.fits").write_bytes(b"")
+    assert len(complete_cache_files(100, config)) == 3
+
+    partial = root / "kplr000000200_lc_Q1111"
+    partial.mkdir(parents=True)
+    (partial / "kplr000000200-0_llc.fits").write_bytes(b"")
+    assert complete_cache_files(200, config) is None
+    assert complete_cache_files(300, config) is None  # not cached

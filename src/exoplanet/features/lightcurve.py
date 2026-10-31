@@ -154,12 +154,37 @@ def normalise_view(view: np.ndarray) -> np.ndarray:
     return centred / depth if depth > 0 else centred
 
 
+def scale_like(view: np.ndarray, reference: np.ndarray) -> np.ndarray:
+    """Apply ``reference``'s normalisation (its median and dip depth) to ``view``.
+
+    Odd/even and secondary views must share the primary's scale: normalised on their own,
+    every dip would reach -1 and depth differences (the binary signature) would vanish.
+    An all-NaN view (no data, e.g. a single observed transit) becomes flat zeros.
+    """
+    if not np.isfinite(view).any():
+        return np.zeros_like(view)
+    offset = np.median(reference)
+    depth = offset - reference.min()
+    return (view - offset) / depth if depth > 0 else view - offset
+
+
+def transit_number(time: np.ndarray, period: float, epoch: float) -> np.ndarray:
+    """Index of the nearest transit (0 at ``epoch``)."""
+    return np.round((time - epoch) / period).astype(int)
+
+
 @dataclass(frozen=True)
 class Views:
     global_view: np.ndarray
     local_view: np.ndarray
+    odd_view: np.ndarray  # local view of odd-numbered transits, on the local view's scale
+    even_view: np.ndarray  # local view of even-numbered transits, same scale
+    secondary_view: np.ndarray  # local-width view at phase 0.5, same scale
     global_empty: float  # fraction of global bins with no data before interpolation
     local_empty: float
+    odd_empty: float
+    even_empty: float
+    secondary_empty: float
     n_in_transit: int  # points within half a duration of mid-transit
 
 
@@ -172,22 +197,36 @@ def make_views(
     local_durations: float,
     local_bin_width: float | None = None,
 ) -> Views:
-    """Global view over the full orbit and local view over ``±local_durations`` durations.
+    """Global view over the full orbit, local view over ``±local_durations`` durations, and
+    odd-transit, even-transit and secondary-eclipse (phase 0.5) views on the local grid.
 
     ``local_bin_width`` (in transit durations) widens the local bins so they overlap; Kepler's
     30-minute cadence is coarser than the local bin spacing for short transits, so narrow
-    bins mostly add noise.
+    bins mostly add noise. The odd, even and secondary views share the local view's
+    normalisation, so their depths are directly comparable with the primary transit.
     """
     ph = phase(time, eph.period, eph.epoch)
     half = min(local_durations * eph.duration, eph.period / 2)
     width = local_bin_width * eph.duration if local_bin_width else None
     global_view, global_empty = bin_median(ph, flux, global_bins, -eph.period / 2, eph.period / 2)
-    local_view, local_empty = bin_median(ph, flux, local_bins, -half, half, width)
+    local_raw, local_empty = bin_median(ph, flux, local_bins, -half, half, width)
+
+    odd = transit_number(time, eph.period, eph.epoch) % 2 == 1
+    odd_raw, odd_empty = bin_median(ph[odd], flux[odd], local_bins, -half, half, width)
+    even_raw, even_empty = bin_median(ph[~odd], flux[~odd], local_bins, -half, half, width)
+    sec_ph = phase(time, eph.period, eph.epoch + eph.period / 2)
+    sec_raw, sec_empty = bin_median(sec_ph, flux, local_bins, -half, half, width)
     return Views(
         global_view=normalise_view(global_view),
-        local_view=normalise_view(local_view),
+        local_view=normalise_view(local_raw),
+        odd_view=scale_like(odd_raw, local_raw),
+        even_view=scale_like(even_raw, local_raw),
+        secondary_view=scale_like(sec_raw, local_raw),
         global_empty=global_empty,
         local_empty=local_empty,
+        odd_empty=odd_empty,
+        even_empty=even_empty,
+        secondary_empty=sec_empty,
         n_in_transit=int((np.abs(ph) < eph.duration / 2).sum()),
     )
 

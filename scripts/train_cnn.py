@@ -30,6 +30,12 @@ def main() -> None:
     parser.add_argument("--config", default=None, help="path to a YAML config")
     parser.add_argument("--name", default="cnn", help="model name for artefacts (default: cnn)")
     parser.add_argument(
+        "--local-views",
+        nargs="+",
+        default=None,
+        help="views stacked as local-tower channels (default: cnn.local_views)",
+    )
+    parser.add_argument(
         "--scalars",
         nargs="*",
         default=None,
@@ -49,6 +55,8 @@ def main() -> None:
     params = dict(config["cnn"])
     if args.scalars is not None:
         params["scalars"] = args.scalars
+    if args.local_views is not None:
+        params["local_views"] = args.local_views
     scalars = params.get("scalars") or []
     assert_no_leakage(scalars)
 

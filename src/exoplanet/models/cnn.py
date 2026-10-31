@@ -26,11 +26,18 @@ GLOBAL, LOCAL, SCALARS = "global_view", "local_view", "scalars"
 
 
 def conv_tower(
-    length: int, channels: list[int], kernel: int, pool: int, pool_stride: int
+    length: int,
+    channels: list[int],
+    kernel: int,
+    pool: int,
+    pool_stride: int,
+    in_channels: int = 1,
 ) -> tuple[nn.Sequential, int]:
-    """Conv blocks for a 1-channel input of ``length``; returns the tower and its flat size."""
+    """Conv blocks for an ``in_channels`` x ``length`` input; returns the tower and its flat
+    size.
+    """
     layers: list[nn.Module] = []
-    in_ch = 1
+    in_ch = in_channels
     for out_ch in channels:
         layers += [
             nn.Conv1d(in_ch, out_ch, kernel, padding=kernel // 2),
@@ -42,7 +49,7 @@ def conv_tower(
         in_ch = out_ch
     tower = nn.Sequential(*layers, nn.Flatten())
     with torch.no_grad():
-        flat = tower(torch.zeros(1, 1, length)).shape[1]
+        flat = tower(torch.zeros(1, in_channels, length)).shape[1]
     return tower, flat
 
 
@@ -54,11 +61,21 @@ class TwoTowerCNN(nn.Module):
     """
 
     def __init__(
-        self, global_len: int, local_len: int, arch: dict[str, Any], n_scalars: int = 0
+        self,
+        global_len: int,
+        local_len: int,
+        arch: dict[str, Any],
+        n_scalars: int = 0,
+        local_views: tuple[str, ...] = (LOCAL,),
     ) -> None:
         super().__init__()
+        # Views on the local grid (local, odd, even, secondary) enter the local tower as
+        # channels; they are phase-aligned, so position-wise comparison is meaningful.
+        self.local_views = tuple(local_views)
         self.global_tower, g_flat = conv_tower(global_len, **arch["global"])
-        self.local_tower, l_flat = conv_tower(local_len, **arch["local"])
+        self.local_tower, l_flat = conv_tower(
+            local_len, **arch["local"], in_channels=len(self.local_views)
+        )
         self.register_buffer("scalar_mean", torch.zeros(n_scalars))
         self.register_buffer("scalar_std", torch.ones(n_scalars))
         head: list[nn.Module] = []
@@ -88,10 +105,16 @@ def attach_scalars(views: pd.DataFrame, sample: pd.DataFrame, columns: list[str]
     return views.assign(**{SCALARS: list(logged)})
 
 
-def view_tensors(views: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """(n, 1, length) view tensors and an (n, n_scalars) scalar tensor (width 0 if none)."""
+def view_tensors(
+    views: pd.DataFrame, local_views: tuple[str, ...] = (LOCAL,)
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Global (n, 1, length) and local (n, len(local_views), length) view tensors, and an
+    (n, n_scalars) scalar tensor (width 0 if none).
+    """
     g = np.stack(views[GLOBAL].to_numpy()).astype(np.float32)[:, None, :]
-    l_ = np.stack(views[LOCAL].to_numpy()).astype(np.float32)[:, None, :]
+    l_ = np.stack(
+        [np.stack(views[name].to_numpy()).astype(np.float32) for name in local_views], axis=1
+    )
     if SCALARS in views.columns and len(views):
         s = np.stack(views[SCALARS].to_numpy()).astype(np.float32)
     else:
@@ -103,7 +126,7 @@ def view_tensors(views: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch
 def predict(model: TwoTowerCNN, views: pd.DataFrame, batch_size: int = 512) -> np.ndarray:
     """Positive-class probabilities, in the row order of ``views``."""
     model.eval()
-    g, l_, s = view_tensors(views)
+    g, l_, s = view_tensors(views, model.local_views)
     out = [
         torch.sigmoid(model(g[i : i + batch_size], l_[i : i + batch_size], s[i : i + batch_size]))
         for i in range(0, len(g), batch_size)
@@ -122,9 +145,12 @@ def train(
     labels are given, their PR-AUC after each epoch (for learning curves only).
     """
     torch.manual_seed(seed)
-    g, l_, s = view_tensors(views)
+    local_views = tuple(params.get("local_views") or (LOCAL,))
+    g, l_, s = view_tensors(views, local_views)
     y = torch.as_tensor(labels.to_numpy(), dtype=torch.float32)
-    model = TwoTowerCNN(g.shape[2], l_.shape[2], params["arch"], n_scalars=s.shape[1])
+    model = TwoTowerCNN(
+        g.shape[2], l_.shape[2], params["arch"], n_scalars=s.shape[1], local_views=local_views
+    )
     if s.shape[1]:
         # Standardise scalars with training-set statistics only.
         model.scalar_mean.copy_(torch.from_numpy(np.nanmean(s.numpy(), axis=0)))

@@ -10,9 +10,11 @@ from exoplanet.features.lightcurve import (
     normalise_view,
     phase,
     process_star,
+    scale_like,
     split_segments,
     stitch,
     transit_mask,
+    transit_number,
 )
 
 CADENCE = 29.4 / 60 / 24  # Kepler long cadence, days
@@ -174,3 +176,58 @@ def test_process_star_with_no_usable_data():
     assert (
         process_star([(np.arange(5.0), np.full(5, np.nan))], {"K": PLANET}, [PLANET], PARAMS) == {}
     )
+
+
+def eclipsing_binary(odd_depth, even_depth, secondary_depth, seed=0):
+    """Detrended-like flux: primary eclipses alternating in depth, plus a secondary at 0.5."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(0, 160, CADENCE)
+    flux = 1 + rng.normal(0, 1e-4, len(t))
+    in_primary = np.abs(phase(t, PLANET.period, PLANET.epoch)) < PLANET.duration / 2
+    n = transit_number(t, PLANET.period, PLANET.epoch)
+    flux -= np.where(in_primary & (n % 2 == 1), odd_depth, 0.0)
+    flux -= np.where(in_primary & (n % 2 == 0), even_depth, 0.0)
+    sec = np.abs(phase(t, PLANET.period, PLANET.epoch + PLANET.period / 2)) < PLANET.duration / 2
+    flux -= np.where(sec, secondary_depth, 0.0)
+    return t, flux
+
+
+def make(t, f):
+    return make_views(t, f, PLANET, 201, 61, 2.0, 0.16)
+
+
+def test_planet_has_matching_odd_even_and_no_secondary():
+    v = make(*eclipsing_binary(DEPTH, DEPTH, 0.0))
+    assert v.odd_view.min() == pytest.approx(-1, abs=0.1)
+    assert v.even_view.min() == pytest.approx(-1, abs=0.1)
+    assert abs(v.secondary_view.min()) < 0.15
+    assert v.odd_empty == v.even_empty == v.secondary_empty == 0
+
+
+def test_odd_even_depth_difference_is_preserved():
+    """Normalised alone both would reach -1; on the shared scale the difference survives."""
+    v = make(*eclipsing_binary(2 * DEPTH, DEPTH, 0.0))
+    assert v.local_view.min() == pytest.approx(-1)
+    # The 2:1 depth ratio survives (each view alone would normalise to -1).
+    assert v.odd_view.min() / v.even_view.min() == pytest.approx(2, rel=0.15)
+    assert v.even_view.min() > -0.7
+
+
+def test_secondary_eclipse_depth_relative_to_primary():
+    v = make(*eclipsing_binary(DEPTH, DEPTH, DEPTH / 2))
+    assert v.secondary_view.min() == pytest.approx(-0.5, abs=0.1)
+    assert abs(np.argmin(v.secondary_view) - 30) <= 8
+
+
+def test_single_transit_leaves_even_view_flat():
+    t = np.arange(0.0, 3.0, CADENCE)  # only transit 0 (even) observed
+    flux = 1 + box(t, PLANET, DEPTH)  # box() is already negative in transit
+    v = make(t, flux)
+    assert v.odd_empty == 1 and (v.odd_view == 0).all()
+    assert v.even_view.min() == pytest.approx(-1, abs=0.1)
+
+
+def test_scale_like_uses_reference_scale():
+    ref = np.array([0.0, 0.0, -2.0, 0.0, 0.0])
+    np.testing.assert_allclose(scale_like(np.array([0.0, -1.0, 0.0]), ref), [0, -0.5, 0])
+    assert (scale_like(np.full(3, np.nan), ref) == 0).all()

@@ -159,3 +159,35 @@ def test_requires_koi_index(data):
     views, splits = data
     with pytest.raises(ValueError, match="indexed by"):
         cross_validate(views.reset_index(), splits, PARAMS, 0)
+
+
+def test_extra_local_channels_carry_signal():
+    """Primary local views are identical across classes; only the odd/even difference
+    (binary at twice the period) separates them, so the extra channels must be used.
+    """
+    rng = np.random.default_rng(2)
+    n = 300
+    label = rng.integers(0, 2, n)
+    xl = np.linspace(-2, 2, LOCAL_LEN)
+    dip = -(np.abs(xl) < 0.5).astype(float)
+    kois = pd.Index([f"K{i:05d}.01" for i in range(n)], name=KOI)
+
+    def noisy(base):
+        return base + rng.normal(0, 0.1, LOCAL_LEN)
+
+    views = pd.DataFrame(
+        {
+            "global_view": [rng.normal(0, 0.1, GLOBAL_LEN) for _ in range(n)],
+            "local_view": [noisy(dip) for _ in range(n)],
+            "odd_view": [noisy(dip * (1.0 if y else 1.4)) for y in label],
+            "even_view": [noisy(dip * (1.0 if y else 0.6)) for y in label],
+        },
+        index=kois,
+    )
+    sample = pd.DataFrame({KOI: kois, "kepid": np.arange(n), "label": label})
+    splits = make_splits(sample, test_fraction=0.2, n_folds=3, seed=0)
+    params = PARAMS | {"local_views": ["local_view", "odd_view", "even_view"]}
+    oof, _, _ = cross_validate(views, splits, params, seed=0)
+    assert pooled_pr_auc(oof) > 0.9
+    model = fit_final(views, splits, params | {"epochs": 1}, 0)
+    assert model.local_views == ("local_view", "odd_view", "even_view")

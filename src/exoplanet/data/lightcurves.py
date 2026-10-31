@@ -18,8 +18,15 @@ import pandas as pd
 from exoplanet.data.splits import KOI, SPLIT, TEST
 from exoplanet.features.lightcurve import Ephemeris, Views, process_star
 
-VIEW_ARRAYS = ("global_view", "local_view")
-VIEW_QC = ("global_empty", "local_empty", "n_in_transit")
+VIEW_ARRAYS = ("global_view", "local_view", "odd_view", "even_view", "secondary_view")
+VIEW_QC = (
+    "global_empty",
+    "local_empty",
+    "odd_empty",
+    "even_empty",
+    "secondary_empty",
+    "n_in_transit",
+)
 
 
 def ephemerides(df: pd.DataFrame) -> dict[str, Ephemeris]:
@@ -36,6 +43,51 @@ def star_cache_dirs(kepid: int, config: dict[str, Any]) -> list[Path]:
     """Cached MAST download folders for a star (one per set of quarters)."""
     root = config["paths"]["lightcurve_dir"] / "mastDownload" / "Kepler"
     return sorted(root.glob(f"kplr{kepid:09d}_lc_*"))
+
+
+def complete_cache_files(kepid: int, config: dict[str, Any]) -> list[Path] | None:
+    """Cached FITS files for a star if every expected quarter is present, else None.
+
+    MAST folder names encode the available quarters (``..._lc_Q0111...``), so a folder from
+    an interrupted download is detected by counting its files.
+    """
+    dirs = star_cache_dirs(kepid, config)
+    if not dirs:
+        return None
+    files = []
+    for directory in dirs:
+        quarters = directory.name.rsplit("_Q", 1)[-1]
+        found = sorted(directory.glob("*_llc.fits"))
+        if len(found) != quarters.count("1"):
+            return None
+        files += found
+    return files
+
+
+def read_cached_star(
+    kepid: int, config: dict[str, Any]
+) -> list[tuple[np.ndarray, np.ndarray]] | None:
+    """Read a star's quarters from the local cache without querying MAST; None if the cache
+    is missing, incomplete or unreadable.
+    """
+    import lightkurve as lk
+
+    files = complete_cache_files(kepid, config)
+    if files is None:
+        return None
+    lc = config["lightcurves"]
+    segments = []
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for path in files:
+                q = lk.read(
+                    str(path), flux_column=lc["flux_column"], quality_bitmask=lc["quality_bitmask"]
+                )
+                segments.append((np.asarray(q.time.value, float), np.asarray(q.flux.value, float)))
+    except (lk.LightkurveError, OSError, ValueError):
+        return None
+    return segments
 
 
 def download_star(kepid: int, config: dict[str, Any]) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -121,7 +173,7 @@ def build_star(
     ``targets`` are the modelling-sample KOIs on the star; ``star_kois`` are all catalogue
     KOIs on it (any disposition), whose transits are masked before detrending.
     """
-    segments = download_star(kepid, config)
+    segments = read_cached_star(kepid, config) or download_star(kepid, config)
     if not segments:
         raise RuntimeError("no Kepler long-cadence light curves found")
     views = process_star(

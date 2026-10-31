@@ -64,6 +64,7 @@ def score_test(
             views_cfg["local_bins"],
             ckpt["params"]["arch"],
             n_scalars=len(scalars),
+            local_views=tuple(ckpt["params"].get("local_views") or ("local_view",)),
         )
         # Checkpoints from before scalar inputs lack the (empty) scalar buffers.
         state = {**dict(model.state_dict()), **ckpt["state_dict"]}
