@@ -24,6 +24,21 @@ labels:
   # CANDIDATE KOIs are unvetted: excluded from training/evaluation.
   exclude: [CANDIDATE]
 
+sample:
+  # Keep KOIs whose parameters come from these deliveries (null keeps all). Older
+  # deliveries are ~98% FALSE POSITIVE and have systematically missing fields, so mixing
+  # them in lets models learn provenance instead of astrophysics.
+  parameter_provenance: [q1_q17_dr25_koi]
+
+features:
+  # Allowed groups: transit, stellar, centroid, multiplicity (see exoplanet.features.tabular).
+  groups: [transit, stellar, centroid]
+
+leakage:
+  # Univariate audit thresholds (symmetrised AUC; 0.5 = no signal).
+  max_value_auc: 0.9
+  max_missing_auc: 0.6
+
 splits:
   n_folds: 5
   group_column: kepid
