@@ -16,6 +16,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Usage
+
+```bash
+python scripts/fetch_catalogue.py      # KOI table -> data/raw/ (cached; --force to refresh)
+python scripts/inspect_catalogue.py    # report -> outputs/catalogue_inspection.md
+```
+
+Catalogue findings are summarised in [docs/catalogue_findings.md](docs/catalogue_findings.md).
+
 ## Layout
 
 ```
@@ -28,6 +37,7 @@ src/exoplanet/
   evaluation/            Precision-recall evaluation, false-positive analysis
 scripts/                 Command-line entry points
 tests/                   Unit tests
+docs/                    Data findings and methodology notes
 ```
 
 Downloaded data (`data/`), trained models (`models/`) and run outputs (`outputs/`) are
@@ -47,7 +57,7 @@ generated locally and are not committed.
 ## Roadmap
 
 1. [x] Project scaffold
-2. [ ] NASA data retrieval and catalogue inspection
+2. [x] NASA data retrieval and catalogue inspection
 3. [ ] Label mapping and leakage audit
 4. [ ] Host-star grouped splitting
 5. [ ] Tabular baseline
