@@ -22,9 +22,10 @@ pytest
 python scripts/fetch_catalogue.py      # KOI table -> data/raw/ (cached; --force to refresh)
 python scripts/inspect_catalogue.py    # report -> outputs/catalogue_inspection.md
 python scripts/audit_leakage.py --strict  # report -> outputs/leakage_audit_results.md
+python scripts/make_splits.py           # grouped splits -> data/processed/splits.csv
 ```
 
-Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md).
+Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md).
 
 ## Layout
 
@@ -53,8 +54,10 @@ generated locally and are not committed.
 - **No leakage:** every catalogue column is either in an allowed feature group or denied with a
   reason (vetting outputs, provenance, uncertainties, epoch, sky position); denied columns
   cannot reach a model.
-- **Grouped splits:** cross-validation folds are grouped by host star (`kepid`) so that no
-  star appears in both training and test data.
+- **Grouped splits:** a held-out test set (20%) and 5 cross-validation folds on the rest, all
+  grouped by host star (`kepid`) and stratified by label, so no star appears in more than one
+  partition. Splits are generated once and shared by every model; the test set is used only
+  for final evaluation, never for model selection or threshold tuning.
 - **Evaluation:** precision-recall curves and PR-AUC, with both models evaluated on identical
   splits.
 
@@ -63,7 +66,7 @@ generated locally and are not committed.
 1. [x] Project scaffold
 2. [x] NASA data retrieval and catalogue inspection
 3. [x] Label mapping and leakage audit
-4. [ ] Host-star grouped splitting
+4. [x] Host-star grouped splitting
 5. [ ] Tabular baseline
 6. [ ] Light-curve pipeline: detrending, phase folding, global/local views
 7. [ ] 1D CNN
