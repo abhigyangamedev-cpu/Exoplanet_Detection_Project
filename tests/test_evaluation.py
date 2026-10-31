@@ -114,4 +114,4 @@ def test_plot_pr_curves_writes_png(tmp_path, scores):
     path = plot_pr_curves(scores, ["good", "weak"], ops, "test", tmp_path / "pr.png")
     assert path.exists() and path.read_bytes()[:4] == b"\x89PNG"
     with pytest.raises(ValueError, match="at most"):
-        plot_pr_curves(scores, ["a", "b", "c", "d"], {}, "t", tmp_path / "x.png")
+        plot_pr_curves(scores, ["a", "b", "c", "d", "e"], {}, "t", tmp_path / "x.png")

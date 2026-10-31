@@ -27,11 +27,15 @@ from exoplanet.reporting import markdown_table
 TRAIN_COMMANDS = {
     "tabular": "python scripts/train_tabular.py",
     "tabular_lc": "python scripts/train_tabular.py --groups transit stellar --name tabular_lc",
+    "tabular_lc_sub": "python scripts/train_tabular.py --views-only --groups transit stellar "
+    "--name tabular_lc_sub",
     "cnn": "python scripts/train_cnn.py",
 }
 MODEL_DESCRIPTIONS = {
     "tabular": "gradient boosting, transit + stellar + centroid catalogue features",
     "tabular_lc": "gradient boosting, transit + stellar features (no centroid data, like the CNN)",
+    "tabular_lc_sub": "as tabular_lc, trained only on KOIs with light-curve views (the CNN's "
+    "training data)",
     "cnn": "two-tower 1D CNN on global and local light-curve views",
 }
 

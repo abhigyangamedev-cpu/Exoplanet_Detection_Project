@@ -29,6 +29,7 @@ def config(tmp_path):
     config["paths"]["outputs_dir"] = tmp_path / "outputs"
     config["paths"]["raw_dir"] = tmp_path / "raw"
     config["paths"]["outputs_dir"].mkdir()
+    config["evaluation"]["models"] = ["tabular", "tabular_lc", "cnn"]
     return config
 
 

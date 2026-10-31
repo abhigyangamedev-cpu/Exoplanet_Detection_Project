@@ -18,6 +18,7 @@ import sklearn
 from exoplanet.config import load_config, set_seed
 from exoplanet.data.catalogue import load_koi_catalogue
 from exoplanet.data.labels import label_catalogue
+from exoplanet.data.lightcurves import load_views
 from exoplanet.data.splits import KOI, load_splits, splits_path
 from exoplanet.evaluation.metrics import pooled_pr_auc, summarise_folds
 from exoplanet.features.tabular import select_features
@@ -28,6 +29,11 @@ from exoplanet.reporting import markdown_table
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None, help="path to a YAML config")
+    parser.add_argument(
+        "--views-only",
+        action="store_true",
+        help="train only on KOIs with light-curve views (same training data as the CNN)",
+    )
     parser.add_argument(
         "--groups", nargs="+", default=None, help="feature groups (default: config features.groups)"
     )
@@ -47,6 +53,9 @@ def main() -> None:
     sample = label_catalogue(load_koi_catalogue(config), config).set_index(KOI)
     features = select_features(sample, groups)
     splits = load_splits(config)
+    if args.views_only:
+        # Keeps each KOI's fold assignment, so folds stay grouped by host star.
+        splits = splits[splits[KOI].isin(load_views(config, splits[KOI]).index)]
 
     oof, fold_metrics, importance = cross_validate(
         features, splits, tc["params"], seed, tc["permutation_repeats"]
@@ -71,6 +80,7 @@ def main() -> None:
         "features": list(features.columns),
         "params": tc["params"],
         "n_train": int(len(oof)),
+        "views_only": args.views_only,
         "sklearn_version": sklearn.__version__,
     }
     model_path = models / f"{args.name}.joblib"

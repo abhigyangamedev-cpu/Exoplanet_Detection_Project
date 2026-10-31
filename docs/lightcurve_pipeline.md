@@ -40,3 +40,22 @@ binaries show V-shaped deep eclipses and visible secondaries (e.g. K06252.01), a
 phase-locked stellar variability is preserved in the global view (K00982.01). With
 overlapping local bins, no trial KOI has empty local bins, including the 570-day K01008.01.
 Throughput was ~7 s per star with 8 parallel workers (~12 h for the full sample).
+
+## Build used for modelling (capped)
+
+The full build ran at ~8.5 stars per minute (~11 h for all 5,830 stars), so it was stopped
+after ~600 stars and replaced by a capped build (`--dev-stars 1000 --workers 16`, ~14 stars
+per minute):
+
+- **All 1,160 test-set stars** were built first, so the held-out evaluation covers the whole
+  test set.
+- **1,000 of 4,670 development stars**: the ~500 already built (the lowest KIC IDs, since the
+  full build ran in ID order) plus a seeded random sample of the rest. The selection is saved
+  in `data/processed/view_stars.csv`.
+
+Result: 2,457 KOIs with views (1,123 development, 1,334 test); one star (KIC 10462462) had
+no usable data after detrending. The CNN therefore trains on ~21% of the development KOIs the
+tabular models use. Positive fractions of the sampled development folds range from 0.33 to
+0.46 (overall 0.39, against 0.41 for the full sample), mostly sampling noise at ~220 KOIs per
+fold. Building the remaining development stars (`--dev-stars` omitted) would let the CNN
+train on the full development set.

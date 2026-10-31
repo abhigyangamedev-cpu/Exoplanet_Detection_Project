@@ -14,9 +14,10 @@ from sklearn.metrics import precision_recall_curve  # noqa: E402
 
 from exoplanet.data.labels import LABEL  # noqa: E402
 
-# Categorical slots 1-3 of the reference palette (blue, orange, aqua), validated for all
-# pairs under colour-vision deficiency; series are assigned in this fixed order.
-SERIES = ("#2a78d6", "#eb6834", "#1baf7a")
+# Categorical slots 1-4 of the reference palette (blue, orange, aqua, yellow), validated for
+# adjacent pairs under colour-vision deficiency (the check for line charts); series are
+# assigned in this fixed order.
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
 SURFACE, TEXT, TEXT_MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a64", "#e4e3de"
 
 

@@ -94,6 +94,7 @@ cnn:
 evaluation:
   # Models compared on the KOIs they can all score; artefacts are found by name
   # (outputs/<name>_oof.csv, models/<name>.joblib or .pt).
-  models: [tabular, tabular_lc, cnn]
+  # tabular_lc_sub: transit + stellar trained only on KOIs with views (the CNN's training data).
+  models: [tabular, tabular_lc, tabular_lc_sub, cnn]
   target_precision: 0.95  # operating-point threshold, chosen on dev out-of-fold scores
   n_bootstrap: 1000       # host-star cluster bootstrap resamples for PR-AUC intervals
