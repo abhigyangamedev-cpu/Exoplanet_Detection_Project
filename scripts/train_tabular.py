@@ -19,8 +19,9 @@ from exoplanet.config import load_config, set_seed
 from exoplanet.data.catalogue import load_koi_catalogue
 from exoplanet.data.labels import label_catalogue
 from exoplanet.data.splits import KOI, load_splits, splits_path
+from exoplanet.evaluation.metrics import pooled_pr_auc, summarise_folds
 from exoplanet.features.tabular import select_features
-from exoplanet.models.tabular import cross_validate, fit_final, pooled_pr_auc, summarise_folds
+from exoplanet.models.tabular import cross_validate, fit_final
 from exoplanet.reporting import markdown_table
 
 

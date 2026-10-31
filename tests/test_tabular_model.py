@@ -3,13 +3,8 @@ import pandas as pd
 import pytest
 
 from exoplanet.data.splits import FOLD, KOI, held_out_kois, make_splits
-from exoplanet.models.tabular import (
-    SCORE,
-    cross_validate,
-    fit_final,
-    pooled_pr_auc,
-    summarise_folds,
-)
+from exoplanet.evaluation.metrics import SCORE, pooled_pr_auc, summarise_folds
+from exoplanet.models.tabular import cross_validate, fit_final
 
 PARAMS = {"max_iter": 30, "max_leaf_nodes": 7}
 
