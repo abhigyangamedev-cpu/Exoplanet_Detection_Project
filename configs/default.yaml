@@ -40,8 +40,12 @@ leakage:
   max_missing_auc: 0.6
 
 splits:
+  # Held-out test set plus cross-validation folds on the rest, all grouped by host star
+  # and stratified by label. Saved once and reused by every model.
+  test_fraction: 0.2
   n_folds: 5
   group_column: kepid
+  filename: splits.csv  # saved under paths.processed_dir
 
 views:
   global_bins: 2001
