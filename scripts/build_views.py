@@ -20,7 +20,7 @@ import pandas as pd
 from exoplanet.config import load_config
 from exoplanet.data.catalogue import load_koi_catalogue
 from exoplanet.data.labels import LABEL, label_catalogue
-from exoplanet.data.lightcurves import build_star, load_views, star_path
+from exoplanet.data.lightcurves import build_star, load_views, select_stars, star_path
 from exoplanet.data.splits import KOI, load_splits
 from exoplanet.reporting import markdown_table
 
@@ -69,6 +69,13 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="process at most N new stars")
     parser.add_argument("--workers", type=int, default=4, help="stars processed in parallel")
     parser.add_argument("--kepid", type=int, nargs="*", help="only these host stars")
+    parser.add_argument(
+        "--dev-stars",
+        type=int,
+        default=None,
+        help="cap development stars (already built first, then a seeded random sample); "
+        "all test stars are always built, and built first",
+    )
     parser.add_argument("--force", action="store_true", help="rebuild existing view files")
     parser.add_argument(
         "--output", default=None, help="report path (default: outputs/views_summary.md)"
@@ -89,7 +96,22 @@ def main() -> None:
     splits = load_splits(config)
     targets = sample[sample[KOI].isin(splits[KOI])]
 
-    stars = sorted(targets["kepid"].unique())
+    views_dir = config["paths"]["views_dir"]
+    built = {int(p.stem) for p in views_dir.glob("*.npz") if not p.name.endswith(".tmp.npz")}
+    # A capped selection is saved and reused, so an interrupted build resumes on the same stars.
+    selection_path = config["paths"]["processed_dir"] / "view_stars.csv"
+    saved = pd.read_csv(selection_path) if selection_path.exists() else None
+    if (
+        args.dev_stars is not None
+        and saved is not None
+        and (saved["split"] != "test").sum() == args.dev_stars
+    ):
+        selection = saved
+    else:
+        selection = select_stars(splits, args.dev_stars, built, config["seed"])
+        if args.dev_stars is not None:
+            selection.to_csv(selection_path, index=False)
+    stars = selection["kepid"].tolist()
     if args.kepid:
         stars = [s for s in stars if s in set(args.kepid)]
     todo = [s for s in stars if args.force or not star_path(s, config).exists()]

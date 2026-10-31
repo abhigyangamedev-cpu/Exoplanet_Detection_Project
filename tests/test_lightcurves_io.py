@@ -76,3 +76,26 @@ def test_view_params_merges_sections(config):
     params = view_params(config)
     for key in ("mask_width", "window_days", "clip_sigma", "global_bins", "local_bin_width"):
         assert key in params
+
+
+def test_select_stars_test_first_and_dev_capped():
+    from exoplanet.data.lightcurves import select_stars
+
+    splits = pd.DataFrame(
+        {
+            "kepoi_name": [f"K{i}.01" for i in range(20)] + ["K0.02"],
+            "kepid": list(range(20)) + [0],
+            "split": ["test"] * 5 + ["dev"] * 15 + ["test"],
+        }
+    )
+    built = {1, 7, 8}
+    sel = select_stars(splits, dev_stars=6, built=built, seed=0)
+    assert list(sel["kepid"][:5]) == [0, 1, 2, 3, 4]  # all test stars, first
+    dev = sel[sel["split"] == "dev"]
+    assert len(dev) == 6 and {7, 8} <= set(dev["kepid"])
+    assert list(dev["kepid"][:2]) == [7, 8]  # already built come first
+    assert sel["kepid"].is_unique
+    again = select_stars(splits, dev_stars=6, built=built, seed=0)
+    pd.testing.assert_frame_equal(sel, again)
+    full = select_stars(splits, dev_stars=None, built=built, seed=0)
+    assert len(full) == 20

@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from exoplanet.data.splits import KOI
+from exoplanet.data.splits import KOI, SPLIT, TEST
 from exoplanet.features.lightcurve import Ephemeris, Views, process_star
 
 VIEW_ARRAYS = ("global_view", "local_view")
@@ -73,6 +73,29 @@ def view_params(config: dict[str, Any]) -> dict[str, Any]:
     lc, views = config["lightcurves"], config["views"]
     keys = ("mask_width", "window_days", "window_durations", "gap_days", "clip_sigma")
     return {**{k: lc[k] for k in keys}, **views}
+
+
+def select_stars(
+    splits: pd.DataFrame, dev_stars: int | None, built: set[int], seed: int
+) -> pd.DataFrame:
+    """Host stars to build, test-set stars first so the test set completes before any cut-off.
+
+    All test stars are kept. If ``dev_stars`` is set, development stars are limited to that
+    many: those already built first (no download needed), then a seeded random sample of
+    the rest. Returns ``kepid``, ``split`` and ``already_built`` in build order.
+    """
+    stars = splits.groupby("kepid")[SPLIT].first().rename("split").reset_index()
+    stars["already_built"] = stars["kepid"].isin(built)
+    test = stars[stars["split"] == TEST].sort_values("kepid")
+    dev = stars[stars["split"] != TEST]
+    if dev_stars is not None:
+        have = dev[dev["already_built"]].sort_values("kepid").head(dev_stars)
+        rest = dev[~dev["already_built"]]
+        fill = rest.sample(n=min(dev_stars - len(have), len(rest)), random_state=seed)
+        dev = pd.concat([have, fill.sort_values("kepid")])
+    else:
+        dev = dev.sort_values("kepid")
+    return pd.concat([test, dev]).reset_index(drop=True)
 
 
 def star_path(kepid: int, config: dict[str, Any]) -> Path:
