@@ -90,6 +90,15 @@ def threshold_at_precision(label: np.ndarray, score: np.ndarray, target: float) 
     return float(thresholds[ok[0]])
 
 
+def max_precision_threshold(label: np.ndarray, score: np.ndarray) -> float:
+    """Threshold with the highest precision (the lowest such threshold, maximising recall):
+    a fallback for models whose precision never reaches the target.
+    """
+    precision, _, thresholds = precision_recall_curve(label, score)
+    best = precision[:-1].max()
+    return float(thresholds[np.flatnonzero(precision[:-1] == best)[0]])
+
+
 def operating_point(label: np.ndarray, score: np.ndarray, threshold: float) -> dict[str, float]:
     """Confusion counts, precision and recall when predicting positive at ``score >= threshold``."""
     pred = score >= threshold

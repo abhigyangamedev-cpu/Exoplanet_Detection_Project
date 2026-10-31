@@ -32,9 +32,14 @@ from exoplanet.evaluation.false_positives import (
 )
 from exoplanet.evaluation.metrics import SCORE
 from exoplanet.evaluation.plots import plot_pr_curves
-from exoplanet.evaluation.pr import compare_pr_auc, operating_point, threshold_at_precision
+from exoplanet.evaluation.pr import (
+    compare_pr_auc,
+    max_precision_threshold,
+    operating_point,
+    threshold_at_precision,
+)
 from exoplanet.features.tabular import select_features
-from exoplanet.models.cnn import TwoTowerCNN, predict
+from exoplanet.models.cnn import TwoTowerCNN, attach_scalars, predict
 from exoplanet.reporting import markdown_table
 
 CONTEXT = ["kepid", LABEL, *FP_FLAGS, "koi_period", "koi_depth", "koi_prad", "koi_model_snr"]
@@ -53,11 +58,19 @@ def score_test(
     if (models_dir / f"{name}.pt").exists():
         ckpt = torch.load(models_dir / f"{name}.pt", weights_only=True)
         views_cfg = ckpt["views"]
+        scalars = ckpt["params"].get("scalars") or []
         model = TwoTowerCNN(
-            views_cfg["global_bins"], views_cfg["local_bins"], ckpt["params"]["arch"]
+            views_cfg["global_bins"],
+            views_cfg["local_bins"],
+            ckpt["params"]["arch"],
+            n_scalars=len(scalars),
         )
-        model.load_state_dict(ckpt["state_dict"])
+        # Checkpoints from before scalar inputs lack the (empty) scalar buffers.
+        state = {**dict(model.state_dict()), **ckpt["state_dict"]}
+        model.load_state_dict(state)
         views = load_views(config, kois.to_series())
+        if scalars:
+            views = attach_scalars(views, sample, scalars)
         return pd.Series(predict(model, views), index=views.index)
     raise FileNotFoundError(f"No final model for {name!r} in {models_dir}")
 
@@ -72,6 +85,7 @@ def main() -> None:
     parser.add_argument("--split", choices=["dev", "test"], default="dev")
     parser.add_argument("--models", nargs="+", default=None, help="default: evaluation.models")
     parser.add_argument("--force", action="store_true", help="overwrite existing test results")
+    parser.add_argument("--tag", default=None, help="suffix for output files, for side experiments")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -80,7 +94,7 @@ def main() -> None:
     ec = config["evaluation"]
     models = args.models or ec["models"]
     outputs = config["paths"]["outputs_dir"]
-    stem = f"evaluation_{args.split}"
+    stem = f"evaluation_{args.split}" + (f"_{args.tag}" if args.tag else "")
     scores_path = outputs / f"{stem}_scores.csv"
     if args.split == "test" and scores_path.exists() and not args.force:
         sys.exit(f"{scores_path} exists: the test set has already been scored (--force to redo)")
@@ -97,12 +111,18 @@ def main() -> None:
         oof[m] = pd.read_csv(path, index_col=KOI)[SCORE]
     dev_common = common_index(oof)
     dev_labels = sample.loc[dev_common, LABEL].to_numpy()
-    thresholds = {
-        m: threshold_at_precision(
-            dev_labels, oof[m].loc[dev_common].to_numpy(), ec["target_precision"]
-        )
-        for m in models
-    }
+    thresholds, fallback = {}, []
+    for m in models:
+        dev_scores = oof[m].loc[dev_common].to_numpy()
+        try:
+            thresholds[m] = threshold_at_precision(dev_labels, dev_scores, ec["target_precision"])
+        except ValueError:
+            thresholds[m] = max_precision_threshold(dev_labels, dev_scores)
+            fallback.append(m)
+            print(
+                f"warning: {m} never reaches precision {ec['target_precision']} on dev; "
+                "using its highest-precision threshold"
+            )
 
     if args.split == "dev":
         raw, n_total = oof, int((splits["split"] != "test").sum())
@@ -150,7 +170,13 @@ def main() -> None:
         f"## Operating point (precision >= {ec['target_precision']} on the development folds)",
         "",
         "Thresholds are chosen on development out-of-fold scores"
-        + (" and applied unchanged to the test set." if args.split == "test" else "."),
+        + (" and applied unchanged to the test set." if args.split == "test" else ".")
+        + (
+            f" {fallback} never reach the target precision on dev, so their threshold is the "
+            "one with the highest dev precision."
+            if fallback
+            else ""
+        ),
         "",
         markdown_table(ops_table, floatfmt=".3f"),
         "",
@@ -200,6 +226,7 @@ def main() -> None:
         "pr_auc": per_model.to_dict(orient="index"),
         "differences": diffs.to_dict(orient="index"),
         "operating_points": ops,
+        "threshold_fallback": fallback,
         "fp_rejection": fp_rejection_by_flag(scores, thresholds).to_dict(orient="index"),
         "figure": figure.name,
     }

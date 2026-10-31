@@ -15,10 +15,13 @@ from pathlib import Path
 import torch
 
 from exoplanet.config import load_config, set_seed
+from exoplanet.data.catalogue import load_koi_catalogue
+from exoplanet.data.labels import label_catalogue
 from exoplanet.data.lightcurves import load_views
 from exoplanet.data.splits import KOI, SPLIT, TEST, load_splits, splits_path
 from exoplanet.evaluation.metrics import pooled_pr_auc, summarise_folds
-from exoplanet.models.cnn import cross_validate, fit_final
+from exoplanet.features.leakage import assert_no_leakage
+from exoplanet.models.cnn import attach_scalars, cross_validate, fit_final
 from exoplanet.reporting import markdown_table
 
 
@@ -26,6 +29,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None, help="path to a YAML config")
     parser.add_argument("--name", default="cnn", help="model name for artefacts (default: cnn)")
+    parser.add_argument(
+        "--scalars",
+        nargs="*",
+        default=None,
+        help="catalogue columns fed to the head as log10 scalars (default: cnn.scalars)",
+    )
     parser.add_argument(
         "--output", default=None, help="report path (default: outputs/<name>_cv.md)"
     )
@@ -37,10 +46,17 @@ def main() -> None:
     config = load_config(args.config)
     seed = config["seed"]
     set_seed(seed)
-    params = config["cnn"]
+    params = dict(config["cnn"])
+    if args.scalars is not None:
+        params["scalars"] = args.scalars
+    scalars = params.get("scalars") or []
+    assert_no_leakage(scalars)
 
     splits = load_splits(config)
     views = load_views(config, splits[KOI])
+    if scalars:
+        sample = label_catalogue(load_koi_catalogue(config), config).set_index(KOI)
+        views = attach_scalars(views, sample, scalars)
     dev = splits[splits[SPLIT] != TEST]
     coverage = dev[KOI].isin(views.index).mean()
     print(f"Views for {len(views)}/{len(splits)} KOIs ({coverage:.1%} of development KOIs)")

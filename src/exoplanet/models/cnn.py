@@ -22,7 +22,7 @@ from exoplanet.data.labels import LABEL
 from exoplanet.data.splits import FOLD, KOI, SPLIT, TEST, cv_folds
 from exoplanet.evaluation.metrics import SCORE, fold_metrics
 
-GLOBAL, LOCAL = "global_view", "local_view"
+GLOBAL, LOCAL, SCALARS = "global_view", "local_view", "scalars"
 
 
 def conv_tower(
@@ -47,37 +47,65 @@ def conv_tower(
 
 
 class TwoTowerCNN(nn.Module):
-    def __init__(self, global_len: int, local_len: int, arch: dict[str, Any]) -> None:
+    """Two conv towers plus, optionally, ``n_scalars`` per-KOI scalar inputs fed to the head.
+
+    Scalars are standardised with training-set statistics held in buffers (so they are saved
+    with the weights); missing values become 0, the training mean.
+    """
+
+    def __init__(
+        self, global_len: int, local_len: int, arch: dict[str, Any], n_scalars: int = 0
+    ) -> None:
         super().__init__()
         self.global_tower, g_flat = conv_tower(global_len, **arch["global"])
         self.local_tower, l_flat = conv_tower(local_len, **arch["local"])
+        self.register_buffer("scalar_mean", torch.zeros(n_scalars))
+        self.register_buffer("scalar_std", torch.ones(n_scalars))
         head: list[nn.Module] = []
-        width = g_flat + l_flat
+        width = g_flat + l_flat + n_scalars
         for units in arch["fc"]:
             head += [nn.Linear(width, units), nn.ReLU(), nn.Dropout(arch["dropout"])]
             width = units
         head.append(nn.Linear(width, 1))
         self.head = nn.Sequential(*head)
 
-    def forward(self, global_view: torch.Tensor, local_view: torch.Tensor) -> torch.Tensor:
-        features = torch.cat([self.global_tower(global_view), self.local_tower(local_view)], 1)
+    def forward(
+        self, global_view: torch.Tensor, local_view: torch.Tensor, scalars: torch.Tensor
+    ) -> torch.Tensor:
+        scaled = torch.nan_to_num((scalars - self.scalar_mean) / self.scalar_std, nan=0.0)
+        features = torch.cat(
+            [self.global_tower(global_view), self.local_tower(local_view), scaled], 1
+        )
         return self.head(features).squeeze(1)
 
 
-def view_tensors(views: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor]:
-    """(n, 1, length) float tensors from a frame of per-KOI view arrays."""
+def attach_scalars(views: pd.DataFrame, sample: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Add a ``scalars`` column: log10 of the given catalogue columns per KOI (non-positive or
+    missing values become NaN). ``sample`` must be indexed by ``kepoi_name``.
+    """
+    values = sample.loc[views.index, columns].apply(pd.to_numeric, errors="coerce")
+    logged = np.log10(values.where(values > 0)).to_numpy(np.float32)
+    return views.assign(**{SCALARS: list(logged)})
+
+
+def view_tensors(views: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """(n, 1, length) view tensors and an (n, n_scalars) scalar tensor (width 0 if none)."""
     g = np.stack(views[GLOBAL].to_numpy()).astype(np.float32)[:, None, :]
     l_ = np.stack(views[LOCAL].to_numpy()).astype(np.float32)[:, None, :]
-    return torch.from_numpy(g), torch.from_numpy(l_)
+    if SCALARS in views.columns and len(views):
+        s = np.stack(views[SCALARS].to_numpy()).astype(np.float32)
+    else:
+        s = np.zeros((len(views), 0), np.float32)
+    return torch.from_numpy(g), torch.from_numpy(l_), torch.from_numpy(s)
 
 
 @torch.no_grad()
 def predict(model: TwoTowerCNN, views: pd.DataFrame, batch_size: int = 512) -> np.ndarray:
     """Positive-class probabilities, in the row order of ``views``."""
     model.eval()
-    g, l_ = view_tensors(views)
+    g, l_, s = view_tensors(views)
     out = [
-        torch.sigmoid(model(g[i : i + batch_size], l_[i : i + batch_size]))
+        torch.sigmoid(model(g[i : i + batch_size], l_[i : i + batch_size], s[i : i + batch_size]))
         for i in range(0, len(g), batch_size)
     ]
     return torch.cat(out).numpy() if out else np.empty(0)
@@ -94,9 +122,13 @@ def train(
     labels are given, their PR-AUC after each epoch (for learning curves only).
     """
     torch.manual_seed(seed)
-    g, l_ = view_tensors(views)
+    g, l_, s = view_tensors(views)
     y = torch.as_tensor(labels.to_numpy(), dtype=torch.float32)
-    model = TwoTowerCNN(g.shape[2], l_.shape[2], params["arch"])
+    model = TwoTowerCNN(g.shape[2], l_.shape[2], params["arch"], n_scalars=s.shape[1])
+    if s.shape[1]:
+        # Standardise scalars with training-set statistics only.
+        model.scalar_mean.copy_(torch.from_numpy(np.nanmean(s.numpy(), axis=0)))
+        model.scalar_std.copy_(torch.from_numpy(np.nanstd(s.numpy(), axis=0)).clamp_min(1e-6))
     optimiser = torch.optim.AdamW(
         model.parameters(), lr=params["learning_rate"], weight_decay=params["weight_decay"]
     )
@@ -115,7 +147,7 @@ def train(
                 gb = torch.where(flip[:, None, None], gb.flip(2), gb)
                 lb = torch.where(flip[:, None, None], lb.flip(2), lb)
             optimiser.zero_grad()
-            loss_fn(model(gb, lb), y[idx]).backward()
+            loss_fn(model(gb, lb, s[idx]), y[idx]).backward()
             optimiser.step()
         if monitor is not None:
             curve.append(average_precision_score(monitor[1], predict(model, monitor[0])))

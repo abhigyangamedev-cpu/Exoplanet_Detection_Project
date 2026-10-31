@@ -35,6 +35,12 @@ def main() -> None:
         help="train only on KOIs with light-curve views (same training data as the CNN)",
     )
     parser.add_argument(
+        "--columns",
+        nargs="+",
+        default=None,
+        help="keep only these columns from the selected groups",
+    )
+    parser.add_argument(
         "--groups", nargs="+", default=None, help="feature groups (default: config features.groups)"
     )
     parser.add_argument(
@@ -52,6 +58,8 @@ def main() -> None:
 
     sample = label_catalogue(load_koi_catalogue(config), config).set_index(KOI)
     features = select_features(sample, groups)
+    if args.columns:
+        features = features[args.columns]
     splits = load_splits(config)
     if args.views_only:
         # Keeps each KOI's fold assignment, so folds stay grouped by host star.

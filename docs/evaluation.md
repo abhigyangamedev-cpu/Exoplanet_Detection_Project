@@ -65,13 +65,16 @@ can score), so they differ slightly from the tabular-only numbers in
 3. **Training-set size matters, but explains only part of the gap.** Training the transit +
    stellar model on the CNN's 21% subset costs 0.013 test PR-AUC (CI 0.001-0.025). Most of
    the CNN's deficit relative to `tabular_lc` (0.063) remains after matching data.
-4. **The CNN cannot see transit depth.** Each view is normalised so the transit minimum is
-   -1, as in AstroNet, so a 1% stellar eclipse and a 100 ppm planet transit can look alike.
-   Its most confident false positives include KOIs with implied radii of 54 and 57 Earth
-   radii (K03873.01, K04939.01), which the tabular models reject easily: `koi_prad` is their
-   most important feature. This is the most likely main cause of the CNN's weaker ranking
-   and of the false positives among its highest scores (the ragged low-recall end of its
-   curve).
+4. **Missing transit depth explains only a few CNN errors.** Each view is normalised so
+   the transit minimum is -1, as in AstroNet, so the CNN cannot see absolute depth. Its two
+   most confident test false positives are giant-radius eclipsing binaries (K03873.01 and
+   K04939.01, 54 and 57 Earth radii) that every tabular model scores below 0.08. But they
+   are a minority: only 4 of the 19 test false positives the CNN accepts have radii above
+   20 Earth radii, and the median accepted depth is ~1,300 ppm. Ten of the 19 carry the
+   centroid-offset flag, i.e. contamination from a nearby star that photometry alone cannot
+   reveal. A follow-up that gave the CNN depth explicitly gained little (see below). An
+   earlier version of this note called missing depth the most likely main cause; the
+   follow-up does not support that.
 5. **Where the CNN helps.** At the dev-chosen thresholds the CNN recovers more planets than
    `tabular_lc_sub` (0.52 vs 0.39 recall) at somewhat lower precision (0.94 vs 0.98), with
    the largest gains for high-SNR planets (0.77 vs 0.40 in the top SNR quartile). Its
@@ -82,10 +85,40 @@ can score), so they differ slightly from the tabular-only numbers in
    (K00904.02, K00904.03, K00282.03); one possible cause, not verified here, is sibling
    planets' transits left in the folded light curve.
 
+## Follow-up experiments (development folds only)
+
+The test set has been used, so later experiments are judged on the development folds only,
+on the 1,123 KOIs with views (`python scripts/evaluate.py --split dev --tag <name>`).
+
+### Transit depth as an input (`cnn_depth`)
+
+The CNN plus three log-scaled scalars, `koi_depth`, `koi_period` and `koi_duration`, joined
+to its dense head (`python scripts/train_cnn.py --name cnn_depth --scalars koi_depth
+koi_period koi_duration`). Period and duration are already used to fold the views, so the new
+information is depth. Control `tabular_scalars_sub`: gradient boosting on those three
+features alone, trained on the same KOIs.
+
+| model | dev PR-AUC (95% CI) |
+|---|---|
+| tabular_lc_sub | 0.931 (0.905-0.951) |
+| cnn_depth | 0.926 (0.900-0.948) |
+| cnn | 0.917 (0.888-0.942) |
+| tabular_scalars_sub | 0.795 (0.751-0.841) |
+
+- Depth adds +0.009 PR-AUC to the CNN (95% CI 0.000-0.018, p = 0.048): a marginal gain, not
+  a fix.
+- It does not reduce deep false positives: the CNN already accepts few of them (1 of 336
+  development false positives with radii above 20 Earth radii; 3 with depth as an input).
+- The three scalars alone are far weaker (0.795), so the views carry most of the CNN's
+  information.
+
 ### Most promising next steps
 
-- Give the CNN the information its normalised views remove: transit depth or planet radius
-  as scalar inputs, or an unnormalised view.
-- Train the CNN on the full development set (build the remaining ~3,700 development stars).
-- Add secondary-eclipse and odd/even views, and remove sibling planets' transits before
-  folding.
+- Train the CNN on the full development set (build the remaining ~3,700 development stars):
+  training-set size measurably limits the matched tabular model (finding 3), and is likely to
+  limit the CNN too.
+- Recover more low-SNR and short-period planets, where every light-curve-only model is
+  weakest: secondary-eclipse and odd/even views, and removing sibling planets' transits
+  before folding.
+- Centroid-offset false positives need pixel-level information (centroid or difference-image
+  data); photometry alone cannot separate them.

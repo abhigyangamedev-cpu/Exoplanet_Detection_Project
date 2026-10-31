@@ -5,7 +5,14 @@ import torch
 
 from exoplanet.data.splits import KOI, held_out_kois, make_splits
 from exoplanet.evaluation.metrics import SCORE, pooled_pr_auc
-from exoplanet.models.cnn import TwoTowerCNN, cross_validate, fit_final, predict, train
+from exoplanet.models.cnn import (
+    TwoTowerCNN,
+    attach_scalars,
+    cross_validate,
+    fit_final,
+    predict,
+    train,
+)
 
 GLOBAL_LEN, LOCAL_LEN = 101, 31
 PARAMS = {
@@ -62,8 +69,49 @@ def cv(data):
 
 def test_forward_shape():
     model = TwoTowerCNN(GLOBAL_LEN, LOCAL_LEN, PARAMS["arch"])
-    out = model(torch.zeros(5, 1, GLOBAL_LEN), torch.zeros(5, 1, LOCAL_LEN))
+    out = model(torch.zeros(5, 1, GLOBAL_LEN), torch.zeros(5, 1, LOCAL_LEN), torch.zeros(5, 0))
     assert out.shape == (5,)
+
+
+def test_attach_scalars_logs_and_masks_invalid():
+    views = pd.DataFrame({"global_view": [0, 0, 0]}, index=pd.Index(["a", "b", "c"], name=KOI))
+    sample = pd.DataFrame(
+        {"depth": [100.0, 0.0, np.nan], "period": [10.0, 1.0, 1000.0]},
+        index=pd.Index(["c", "b", "a"], name=KOI),
+    )
+    out = attach_scalars(views, sample, ["depth", "period"])
+    s = np.stack(out["scalars"].to_numpy())
+    np.testing.assert_allclose(s[2], [2.0, 1.0])  # row "c"
+    assert np.isnan(s[0, 0]) and np.isnan(s[1, 0])  # missing and non-positive depth
+    assert s[0, 1] == pytest.approx(3.0)
+
+
+def test_learns_from_scalars_when_views_are_uninformative():
+    """Views are pure noise; only the scalar carries the label (with some missing values)."""
+    rng = np.random.default_rng(5)
+    n = 300
+    label = rng.integers(0, 2, n)
+    kois = pd.Index([f"K{i:05d}.01" for i in range(n)], name=KOI)
+    depth = np.where(label == 1, 10 ** rng.normal(2.5, 0.2, n), 10 ** rng.normal(4.0, 0.2, n))
+    depth[rng.random(n) < 0.05] = np.nan
+    views = pd.DataFrame(
+        {
+            "global_view": list(rng.normal(0, 0.1, (n, GLOBAL_LEN))),
+            "local_view": list(rng.normal(0, 0.1, (n, LOCAL_LEN))),
+        },
+        index=kois,
+    )
+    views = attach_scalars(views, pd.DataFrame({"depth": depth}, index=kois), ["depth"])
+    sample = pd.DataFrame({KOI: kois, "kepid": np.arange(n), "label": label})
+    splits = make_splits(sample, test_fraction=0.2, n_folds=3, seed=0)
+    oof, _, _ = cross_validate(views, splits, PARAMS, seed=0)
+    assert pooled_pr_auc(oof) > 0.9
+
+    model = fit_final(views, splits, PARAMS | {"epochs": 2}, 0)
+    assert model.scalar_mean.shape == (1,) and torch.isfinite(model.scalar_mean).all()
+    clone = TwoTowerCNN(GLOBAL_LEN, LOCAL_LEN, PARAMS["arch"], n_scalars=1)
+    clone.load_state_dict(model.state_dict())  # buffers travel with the weights
+    np.testing.assert_array_equal(predict(clone, views), predict(model, views))
 
 
 def test_learns_transit_shape(cv):

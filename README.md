@@ -16,9 +16,9 @@ Held-out test set (1,334 KOIs), PR-AUC with 95% host-star bootstrap intervals:
 
 - Catalogue centroid diagnostics are the strongest single source of information.
 - The light-curve CNN trails a tabular model trained on the same KOIs by 0.051 PR-AUC (95%
-  CI 0.023-0.079). Its views are normalised to unit depth, so it cannot see how deep a
-  transit is, and its most confident false positives are giant-radius eclipsing binaries
-  that catalogue features reject easily.
+  CI 0.023-0.079). It misses more low-SNR and short-period planets, and half the false
+  positives it accepts are centroid-offset cases that photometry cannot reveal. Giving it
+  transit depth as an input helped only marginally (+0.009 dev PR-AUC).
 - The CNN was trained on 21% of the development KOIs, because light curves were built for all
   test stars but only 1,000 development stars.
 

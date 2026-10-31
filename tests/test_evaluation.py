@@ -68,6 +68,16 @@ def test_threshold_at_precision_and_operating_point(scores):
     assert op["tp"] + op["fn"] == y.sum() and op["fp"] + op["tn"] == (y == 0).sum()
 
 
+def test_max_precision_threshold_fallback():
+    from exoplanet.evaluation.pr import max_precision_threshold
+
+    y = np.array([0, 1, 0, 1, 1, 0])
+    s = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.1])
+    thr = max_precision_threshold(y, s)
+    best = max(operating_point(y, s, t)["precision"] for t in s)
+    assert operating_point(y, s, thr)["precision"] == best
+
+
 def test_threshold_unreachable_raises():
     with pytest.raises(ValueError, match="never reaches"):
         threshold_at_precision(np.array([0, 1, 0, 1]), np.array([0.9, 0.1, 0.8, 0.2]), 0.99)
