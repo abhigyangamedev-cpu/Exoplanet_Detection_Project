@@ -25,6 +25,7 @@ python scripts/audit_leakage.py --strict  # report -> outputs/leakage_audit_resu
 python scripts/make_splits.py           # grouped splits -> data/processed/splits.csv
 python scripts/train_tabular.py         # CV report -> outputs/tabular_cv.md, model -> models/
 python scripts/build_views.py --workers 8  # light curves -> data/processed/views/ (resumable)
+python scripts/train_cnn.py             # CV report -> outputs/cnn_cv.md, model -> models/
 ```
 
 Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md). Tabular baseline: [docs/tabular_baseline.md](docs/tabular_baseline.md). Light-curve pipeline: [docs/lightcurve_pipeline.md](docs/lightcurve_pipeline.md).

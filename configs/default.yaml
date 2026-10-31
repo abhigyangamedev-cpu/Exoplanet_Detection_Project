@@ -78,3 +78,17 @@ views:
   local_bins: 201
   local_durations: 2.0  # half-width of the local view, in transit durations
   local_bin_width: 0.16  # local bin width in durations (overlapping; Shallue & Vanderburg 2018)
+
+cnn:
+  # Fixed epoch count: validation folds are monitored, never used for early stopping.
+  epochs: 30
+  batch_size: 64
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  flip_augment: true  # random time reversal of both views
+  arch:
+    global: {channels: [8, 16, 32, 64, 64], kernel: 5, pool: 5, pool_stride: 2}
+    local: {channels: [16, 32], kernel: 5, pool: 7, pool_stride: 2}
+    fc: [128]
+    dropout: 0.3
+  model_filename: cnn.pt  # saved under paths.models_dir
