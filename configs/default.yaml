@@ -7,6 +7,10 @@ paths:
   raw_dir: data/raw
   interim_dir: data/interim
   processed_dir: data/processed
+  # Raw Kepler FITS cache (~40-50 GB for the full sample); may be an absolute path, e.g.
+  # outside a cloud-synced folder.
+  lightcurve_dir: data/raw/lightcurves
+  views_dir: data/processed/views
   models_dir: models
   outputs_dir: outputs
 
@@ -59,7 +63,18 @@ tabular:
   permutation_repeats: 5
   model_filename: tabular_hgb.joblib  # saved under paths.models_dir
 
+lightcurves:
+  # Kepler long-cadence light curves from MAST (cached under paths.lightcurve_dir).
+  flux_column: pdcsap_flux
+  quality_bitmask: default
+  mask_width: 2.0         # mask +-1 transit duration around every KOI before detrending
+  window_days: 1.5        # moving-median detrending window, days ...
+  window_durations: 3.0   # ... or this many times the star's longest transit, if longer
+  gap_days: 0.75          # segments are detrended separately across larger gaps
+  clip_sigma: 5.0         # clip upward outliers (flares, cosmic rays) above this
+
 views:
   global_bins: 2001
   local_bins: 201
   local_durations: 2.0  # half-width of the local view, in transit durations
+  local_bin_width: 0.16  # local bin width in durations (overlapping; Shallue & Vanderburg 2018)
