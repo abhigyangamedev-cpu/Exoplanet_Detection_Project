@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from exoplanet.reporting import markdown_table
+
 DISPOSITION = "koi_disposition"
 PIPELINE_DISPOSITION = "koi_pdisposition"
 STAR = "kepid"
@@ -74,17 +76,6 @@ def summarise_catalogue(
     }
 
 
-def _table(df: pd.DataFrame, floatfmt: str = ".4g") -> str:
-    """Render a DataFrame as a Markdown table without the optional ``tabulate`` dependency."""
-    header = [df.index.name or ""] + [str(c) for c in df.columns]
-    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
-    # itertuples keeps per-column dtypes (iterrows would upcast integer counts to float).
-    for idx, *values in df.itertuples(name=None):
-        cells = [format(v, floatfmt) if isinstance(v, float) else str(v) for v in values]
-        lines.append("| " + " | ".join([str(idx), *cells]) + " |")
-    return "\n".join(lines)
-
-
 def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
     """Render ``summarise_catalogue`` output as a Markdown report."""
     s = summary
@@ -109,7 +100,7 @@ def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = Non
         "",
         "## Dispositions",
         "",
-        _table(
+        markdown_table(
             pd.DataFrame.from_dict(
                 s["disposition_counts"], orient="index", columns=["n"]
             ).rename_axis("koi_disposition")
@@ -121,7 +112,7 @@ def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = Non
             "Archive disposition (rows) vs. Kepler pipeline disposition (columns). "
             "`koi_pdisposition` is a vetting output and must not be used as a feature.",
             "",
-            _table(s["disposition_vs_pipeline"]),
+            markdown_table(s["disposition_vs_pipeline"]),
             "",
         ]
 
@@ -129,12 +120,12 @@ def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = Non
     out += [
         "## Host-star structure",
         "",
-        _table(kps.rename_axis("kois_on_star")),
+        markdown_table(kps.rename_axis("kois_on_star")),
         "",
         "KOIs by number of KOIs on the same host star, with the confirmed fraction among "
         "labelled KOIs at each multiplicity.",
         "",
-        _table(s["multiplicity_by_class"]),
+        markdown_table(s["multiplicity_by_class"]),
         "",
     ]
 
@@ -142,7 +133,7 @@ def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = Non
         out += [
             "## Median key quantities by class (labelled KOIs)",
             "",
-            _table(s["numeric_by_class"].rename_axis("column")),
+            markdown_table(s["numeric_by_class"].rename_axis("column")),
             "",
         ]
 
@@ -153,7 +144,7 @@ def render_report(summary: dict[str, Any], metadata: dict[str, Any] | None = Non
         f"{len(miss)} of {s['n_columns']} columns have missing values; "
         f"{s['n_columns_all_missing']} are entirely empty.",
         "",
-        _table(miss, floatfmt=".1%"),
+        markdown_table(miss, floatfmt=".1%"),
         "",
         "## Column types",
         "",
