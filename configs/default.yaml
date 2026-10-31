@@ -61,7 +61,6 @@ tabular:
     min_samples_leaf: 20
     l2_regularization: 1.0
   permutation_repeats: 5
-  model_filename: tabular_hgb.joblib  # saved under paths.models_dir
 
 lightcurves:
   # Kepler long-cadence light curves from MAST (cached under paths.lightcurve_dir).
@@ -91,4 +90,10 @@ cnn:
     local: {channels: [16, 32], kernel: 5, pool: 7, pool_stride: 2}
     fc: [128]
     dropout: 0.3
-  model_filename: cnn.pt  # saved under paths.models_dir
+
+evaluation:
+  # Models compared on the KOIs they can all score; artefacts are found by name
+  # (outputs/<name>_oof.csv, models/<name>.joblib or .pt).
+  models: [tabular, tabular_lc, cnn]
+  target_precision: 0.95  # operating-point threshold, chosen on dev out-of-fold scores
+  n_bootstrap: 1000       # host-star cluster bootstrap resamples for PR-AUC intervals

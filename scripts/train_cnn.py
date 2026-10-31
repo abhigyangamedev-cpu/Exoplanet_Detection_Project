@@ -25,7 +25,10 @@ from exoplanet.reporting import markdown_table
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None, help="path to a YAML config")
-    parser.add_argument("--output", default=None, help="report path (default: outputs/cnn_cv.md)")
+    parser.add_argument("--name", default="cnn", help="model name for artefacts (default: cnn)")
+    parser.add_argument(
+        "--output", default=None, help="report path (default: outputs/<name>_cv.md)"
+    )
     parser.add_argument(
         "--no-final", action="store_true", help="skip refitting on all dev KOIs (CV only)"
     )
@@ -46,7 +49,7 @@ def main() -> None:
 
     outputs, models = config["paths"]["outputs_dir"], config["paths"]["models_dir"]
     outputs.mkdir(parents=True, exist_ok=True)
-    oof_path = outputs / "cnn_oof.csv"
+    oof_path = outputs / f"{args.name}_oof.csv"
     oof.to_csv(oof_path)
 
     if not args.no_final:
@@ -55,7 +58,7 @@ def main() -> None:
         )
         model = fit_final(views, splits, params, seed)
         models.mkdir(parents=True, exist_ok=True)
-        model_path = models / params["model_filename"]
+        model_path = models / f"{args.name}.pt"
         torch.save(
             {
                 "state_dict": model.state_dict(),
@@ -110,7 +113,7 @@ def main() -> None:
         markdown_table(shown, floatfmt=".3f"),
         "",
     ]
-    output = Path(args.output) if args.output else outputs / "cnn_cv.md"
+    output = Path(args.output) if args.output else outputs / f"{args.name}_cv.md"
     output.write_text("\n".join(report), encoding="utf-8")
 
     print(f"OOF scores: {oof_path}\nReport: {output}")

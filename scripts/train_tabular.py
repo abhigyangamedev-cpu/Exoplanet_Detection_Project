@@ -29,14 +29,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None, help="path to a YAML config")
     parser.add_argument(
-        "--output", default=None, help="report path (default: outputs/tabular_cv.md)"
+        "--groups", nargs="+", default=None, help="feature groups (default: config features.groups)"
+    )
+    parser.add_argument(
+        "--name", default="tabular", help="model name for artefacts (default: tabular)"
+    )
+    parser.add_argument(
+        "--output", default=None, help="report path (default: outputs/<name>_cv.md)"
     )
     args = parser.parse_args()
 
     config = load_config(args.config)
     seed = config["seed"]
     set_seed(seed)
-    tc, groups = config["tabular"], config["features"]["groups"]
+    tc, groups = config["tabular"], args.groups or config["features"]["groups"]
 
     sample = label_catalogue(load_koi_catalogue(config), config).set_index(KOI)
     features = select_features(sample, groups)
@@ -50,7 +56,7 @@ def main() -> None:
     outputs, models = config["paths"]["outputs_dir"], config["paths"]["models_dir"]
     outputs.mkdir(parents=True, exist_ok=True)
     models.mkdir(parents=True, exist_ok=True)
-    oof_path = outputs / "tabular_oof.csv"
+    oof_path = outputs / f"{args.name}_oof.csv"
     oof.to_csv(oof_path)
 
     splits_meta = json.loads(
@@ -67,7 +73,7 @@ def main() -> None:
         "n_train": int(len(oof)),
         "sklearn_version": sklearn.__version__,
     }
-    model_path = models / tc["model_filename"]
+    model_path = models / f"{args.name}.joblib"
     joblib.dump({"model": model, "provenance": provenance}, model_path)
 
     summary = summarise_folds(fold_metrics)
@@ -97,7 +103,7 @@ def main() -> None:
         markdown_table(importance, floatfmt=".4f"),
         "",
     ]
-    output = Path(args.output) if args.output else outputs / "tabular_cv.md"
+    output = Path(args.output) if args.output else outputs / f"{args.name}_cv.md"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(report), encoding="utf-8")
 
