@@ -10,7 +10,9 @@ out-of-fold scores, and models are compared on the KOIs that all of them can sco
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
 import joblib
@@ -185,6 +187,23 @@ def main() -> None:
         ]
     report_path = outputs / f"{stem}.md"
     report_path.write_text("\n".join(report), encoding="utf-8")
+
+    summary = {
+        "split": args.split,
+        "created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+        "models": models,
+        "n_kois": len(scores),
+        "n_total": n_total,
+        "positive_fraction": float(y.mean()),
+        "target_precision": ec["target_precision"],
+        "n_bootstrap": ec["n_bootstrap"],
+        "pr_auc": per_model.to_dict(orient="index"),
+        "differences": diffs.to_dict(orient="index"),
+        "operating_points": ops,
+        "fp_rejection": fp_rejection_by_flag(scores, thresholds).to_dict(orient="index"),
+        "figure": figure.name,
+    }
+    (outputs / f"{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(per_model.to_string(float_format="%.3f"))
     print(diffs.to_string(float_format="%.3f"))
