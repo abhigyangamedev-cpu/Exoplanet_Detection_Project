@@ -21,9 +21,10 @@ pytest
 ```bash
 python scripts/fetch_catalogue.py      # KOI table -> data/raw/ (cached; --force to refresh)
 python scripts/inspect_catalogue.py    # report -> outputs/catalogue_inspection.md
+python scripts/audit_leakage.py --strict  # report -> outputs/leakage_audit_results.md
 ```
 
-Catalogue findings are summarised in [docs/catalogue_findings.md](docs/catalogue_findings.md).
+Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md).
 
 ## Layout
 
@@ -47,8 +48,11 @@ generated locally and are not committed.
 
 - **Labels:** `CONFIRMED` → 1, `FALSE POSITIVE` → 0. Unvetted `CANDIDATE` KOIs are excluded
   from training and evaluation.
-- **No leakage:** vetting outputs (e.g. `koi_score`, `koi_fpflag_*`, `koi_pdisposition`) are
-  never used as model features.
+- **Homogeneous sample:** only KOIs with DR25 parameters are modelled; older deliveries are
+  ~98% false positives and would let models learn provenance.
+- **No leakage:** every catalogue column is either in an allowed feature group or denied with a
+  reason (vetting outputs, provenance, uncertainties, epoch, sky position); denied columns
+  cannot reach a model.
 - **Grouped splits:** cross-validation folds are grouped by host star (`kepid`) so that no
   star appears in both training and test data.
 - **Evaluation:** precision-recall curves and PR-AUC, with both models evaluated on identical
@@ -58,7 +62,7 @@ generated locally and are not committed.
 
 1. [x] Project scaffold
 2. [x] NASA data retrieval and catalogue inspection
-3. [ ] Label mapping and leakage audit
+3. [x] Label mapping and leakage audit
 4. [ ] Host-star grouped splitting
 5. [ ] Tabular baseline
 6. [ ] Light-curve pipeline: detrending, phase folding, global/local views
