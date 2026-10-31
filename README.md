@@ -23,9 +23,10 @@ python scripts/fetch_catalogue.py      # KOI table -> data/raw/ (cached; --force
 python scripts/inspect_catalogue.py    # report -> outputs/catalogue_inspection.md
 python scripts/audit_leakage.py --strict  # report -> outputs/leakage_audit_results.md
 python scripts/make_splits.py           # grouped splits -> data/processed/splits.csv
+python scripts/train_tabular.py         # CV report -> outputs/tabular_cv.md, model -> models/
 ```
 
-Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md).
+Catalogue findings: [docs/catalogue_findings.md](docs/catalogue_findings.md). Leakage policy: [docs/leakage_audit.md](docs/leakage_audit.md). Split summary: [docs/splits.md](docs/splits.md). Tabular baseline: [docs/tabular_baseline.md](docs/tabular_baseline.md).
 
 ## Layout
 
@@ -67,7 +68,7 @@ generated locally and are not committed.
 2. [x] NASA data retrieval and catalogue inspection
 3. [x] Label mapping and leakage audit
 4. [x] Host-star grouped splitting
-5. [ ] Tabular baseline
+5. [x] Tabular baseline
 6. [ ] Light-curve pipeline: detrending, phase folding, global/local views
 7. [ ] 1D CNN
 8. [ ] Precision-recall evaluation and false-positive analysis
