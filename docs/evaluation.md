@@ -112,13 +112,49 @@ features alone, trained on the same KOIs.
 - The three scalars alone are far weaker (0.795), so the views carry most of the CNN's
   information.
 
+### Odd/even and secondary-eclipse views (`cnn_oe`)
+
+Three extra views on the local grid: the local view of odd-numbered transits, of
+even-numbered transits, and a view centred at phase 0.5 (secondary eclipse for a circular
+orbit). They are scaled with the primary local view's normalisation, so a binary's unequal
+odd/even depths or its secondary eclipse keep their relative depth instead of each being
+normalised to -1. The four local-grid views enter the CNN's local tower as channels
+(`python scripts/train_cnn.py --name cnn_oe --local-views local_view odd_view even_view
+secondary_view`). Global and local views were rebuilt bit-identically, so earlier models'
+results stand.
+
+| model | dev PR-AUC (95% CI) | recall at precision 0.95 |
+|---|---|---|
+| tabular_lc_sub | 0.931 (0.905-0.951) | 0.421 |
+| cnn_depth | 0.926 (0.900-0.948) | 0.572 |
+| cnn | 0.917 (0.888-0.942) | 0.364 |
+| cnn_oe | 0.909 (0.874-0.938) | 0.501 |
+
+- **No improvement in ranking:** `cnn` - `cnn_oe` = 0.008 PR-AUC (95% CI -0.009 to 0.027,
+  p = 0.39).
+- **The targeted false positives were already handled.** The plain CNN accepts only 3 of 365
+  stellar-eclipse false positives at its operating threshold; `cnn_oe` accepts 2. On real
+  data the views do show the intended signatures (e.g. a secondary eclipse at -0.3 for the
+  eclipsing binary K07278.01; matching odd/even and a flat secondary for the planet
+  K00723.01), but the CNN could already reject these cases.
+- **The CNN's main weakness is missed planets**, especially at low SNR and short period, and
+  these views are false-positive diagnostics; they do not make faint transits easier to see.
+- Recall at precision 0.95 rose (0.36 to 0.50, and 0.57 for `cnn_depth`), but each threshold
+  is chosen on the same development scores it is measured on, and at 95% precision recall
+  swings with small changes among the top-ranked KOIs. The threshold-free PR-AUC shows no
+  difference, so this is not evidence of a real gain.
+- Known limitation: for very short-period variables such as the 1.75-day contact binary
+  K01957.02, the views show flat plateaus at the brightest phases. Upward-outlier clipping
+  (meant for flares) appears to remove genuine variability there. It predates these views,
+  affects only extreme variables (false positives either way) and has not been changed.
+
 ### Most promising next steps
 
 - Train the CNN on the full development set (build the remaining ~3,700 development stars):
   training-set size measurably limits the matched tabular model (finding 3), and is likely to
-  limit the CNN too.
+  limit the CNN too. Neither extra input tried so far (depth, odd/even/secondary views)
+  produced a clear gain on ~1,100 training KOIs.
 - Recover more low-SNR and short-period planets, where every light-curve-only model is
-  weakest: secondary-eclipse and odd/even views, and removing sibling planets' transits
-  before folding.
+  weakest; one candidate is removing sibling planets' transits before folding.
 - Centroid-offset false positives need pixel-level information (centroid or difference-image
   data); photometry alone cannot separate them.
