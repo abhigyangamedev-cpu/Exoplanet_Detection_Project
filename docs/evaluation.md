@@ -24,31 +24,68 @@ Code: `exoplanet.evaluation` (`pr`, `false_positives`, `plots`, `metrics`).
   confirmed planets is broken down by SNR and period quartiles, and each model's most
   confident mistakes are listed.
 
-Models compared (`evaluation.models` in the config): `tabular` (transit + stellar +
-centroid features), `tabular_lc` (transit + stellar: the like-for-like comparison for the
-light-curve CNN, which sees no centroid data) and `cnn`.
+Models compared (`evaluation.models` in the config):
 
-## Development results so far (tabular models)
+- `tabular`: gradient boosting on transit + stellar + centroid catalogue features;
+- `tabular_lc`: transit + stellar only, since the light-curve CNN sees no centroid data;
+- `tabular_lc_sub`: as `tabular_lc`, trained only on the development KOIs that have
+  light-curve views. The capped view build leaves the CNN ~21% of the development KOIs, so
+  this control separates "light curve vs catalogue" from "less training data";
+- `cnn`: the two-tower CNN on global and local views.
 
-On all 5,342 development KOIs (out-of-fold):
+All four were final, with thresholds fixed from development scores, before the test set was
+scored. The test evaluation was run once (a first attempt crashed while loading the CNN
+checkpoint, before any test score was computed or saved).
 
-| model | PR-AUC | 95% CI | recall at precision 0.95 |
+## Results
+
+Full generated tables: [results.md](results.md). Test set: 1,334 of 1,335 KOIs (one star had
+no usable light curve).
+
+| model | dev PR-AUC (95% CI) | test PR-AUC (95% CI) | test recall / precision at dev threshold |
 |---|---|---|---|
-| tabular | 0.994 | 0.992-0.995 | 0.980 |
-| tabular_lc | 0.969 | 0.962-0.974 | 0.819 |
+| tabular | 0.994 (0.989-0.997) | 0.993 (0.984-0.998) | 0.984 / 0.962 |
+| tabular_lc | 0.960 (0.946-0.973) | 0.966 (0.947-0.982) | 0.734 / 0.978 |
+| tabular_lc_sub | 0.931 (0.905-0.951) | 0.953 (0.935-0.969) | 0.394 / 0.977 |
+| cnn | 0.917 (0.888-0.942) | 0.903 (0.870-0.934) | 0.518 / 0.937 |
 
-Centroid features add 0.025 PR-AUC (95% CI 0.020-0.031). Without them, recall at 95%
-precision falls most for low-SNR (0.67 vs 0.97) and short-period (0.66 vs 0.96) planets.
-`tabular_lc` rejects centroid-offset false positives less often (0.946 vs 0.982) but
-rejects stellar eclipses and non-transit-like signals slightly more often.
+Development figures are on the 1,123 development KOIs with views (the only ones every model
+can score), so they differ slightly from the tabular-only numbers in
+[tabular_baseline.md](tabular_baseline.md).
 
-Notes from the error lists:
+### Findings
 
-- 52 KOIs lack transit-fit values (SNR, depth, radius); 51 are false positives, so
-  missingness carries a weak signal (missing-indicator AUC 0.506 in the leakage audit). One
-  such confirmed planet (K07368.01) receives a near-zero score.
-- One false positive (K00242.01) carries no Robovetter flag; it is among the tabular
-  model's highest-scored false positives.
+1. **Centroid diagnostics dominate.** The full tabular model is best everywhere (test
+   PR-AUC 0.993; recall 0.98 at precision 0.96). Removing centroid features costs 0.028
+   PR-AUC (95% CI 0.012-0.046) and a quarter of the recall at the operating point.
+2. **The CNN is behind a tabular model trained on the same data.** On the test set the CNN
+   trails `tabular_lc_sub` by 0.051 PR-AUC (95% CI 0.023-0.079). On the smaller development
+   comparison the gap (0.014, CI -0.013 to 0.042) was not significant; the test set is
+   larger and is the definitive measurement.
+3. **Training-set size matters, but explains only part of the gap.** Training the transit +
+   stellar model on the CNN's 21% subset costs 0.013 test PR-AUC (CI 0.001-0.025). Most of
+   the CNN's deficit relative to `tabular_lc` (0.063) remains after matching data.
+4. **The CNN cannot see transit depth.** Each view is normalised so the transit minimum is
+   -1, as in AstroNet, so a 1% stellar eclipse and a 100 ppm planet transit can look alike.
+   Its most confident false positives include KOIs with implied radii of 54 and 57 Earth
+   radii (K03873.01, K04939.01), which the tabular models reject easily: `koi_prad` is their
+   most important feature. This is the most likely main cause of the CNN's weaker ranking
+   and of the false positives among its highest scores (the ragged low-recall end of its
+   curve).
+5. **Where the CNN helps.** At the dev-chosen thresholds the CNN recovers more planets than
+   `tabular_lc_sub` (0.52 vs 0.39 recall) at somewhat lower precision (0.94 vs 0.98), with
+   the largest gains for high-SNR planets (0.77 vs 0.40 in the top SNR quartile). Its
+   threshold also transferred less well: test precision 0.937 against the 0.95 target.
+6. **Hard cases for every light-curve-only model** are low-SNR and short-period planets
+   (CNN recall 0.20 and 0.24 in the lowest quartiles; `tabular_lc` 0.53 and 0.62).
+   Several of the CNN's most confidently missed planets belong to multi-planet systems
+   (K00904.02, K00904.03, K00282.03); one possible cause, not verified here, is sibling
+   planets' transits left in the folded light curve.
 
-CNN results and the single test-set evaluation will be added once the light-curve views are
-built and the CNN is trained.
+### Most promising next steps
+
+- Give the CNN the information its normalised views remove: transit depth or planet radius
+  as scalar inputs, or an unnormalised view.
+- Train the CNN on the full development set (build the remaining ~3,700 development stars).
+- Add secondary-eclipse and odd/even views, and remove sibling planets' transits before
+  folding.

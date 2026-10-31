@@ -3,13 +3,27 @@
 Classifying NASA Kepler Objects of Interest (KOIs) as confirmed planets or false positives,
 using a 1D CNN on phase-folded light curves and a tabular baseline on catalogue features.
 
-> Status: all pipeline code is in place. The full light-curve view build is running; CNN
-> training and the single held-out test evaluation follow it. See the roadmap below.
-
 ## Results
 
-[docs/results.md](docs/results.md) is generated from pipeline outputs by
-`scripts/make_report.py`; sections not yet run are marked pending. Background:
+Held-out test set (1,334 KOIs), PR-AUC with 95% host-star bootstrap intervals:
+
+| model | inputs | test PR-AUC |
+|---|---|---|
+| `tabular` | transit + stellar + centroid catalogue features | 0.993 (0.984-0.998) |
+| `tabular_lc` | transit + stellar features | 0.966 (0.947-0.982) |
+| `tabular_lc_sub` | as above, trained on the CNN's training KOIs only | 0.953 (0.935-0.969) |
+| `cnn` | global and local light-curve views | 0.903 (0.870-0.934) |
+
+- Catalogue centroid diagnostics are the strongest single source of information.
+- The light-curve CNN trails a tabular model trained on the same KOIs by 0.051 PR-AUC (95%
+  CI 0.023-0.079). Its views are normalised to unit depth, so it cannot see how deep a
+  transit is, and its most confident false positives are giant-radius eclipsing binaries
+  that catalogue features reject easily.
+- The CNN was trained on 21% of the development KOIs, because light curves were built for all
+  test stars but only 1,000 development stars.
+
+Interpretation and next steps: [docs/evaluation.md](docs/evaluation.md). All generated
+numbers: [docs/results.md](docs/results.md), produced by `scripts/make_report.py`. Background:
 
 - [Catalogue findings](docs/catalogue_findings.md): classes, provenance, leakage evidence
 - [Leakage audit](docs/leakage_audit.md) and [results](docs/leakage_audit_results.md)
@@ -40,14 +54,16 @@ Run from the repository root, in order. Times are for a 12-core CPU without a GP
 | Leakage audit | `python scripts/audit_leakage.py --strict` | `outputs/leakage_audit_results.md` | seconds |
 | Splits | `python scripts/make_splits.py` | `data/processed/splits.csv` (created once; `--force` to regenerate) | seconds |
 | Tabular baselines | `python scripts/train_tabular.py` and `python scripts/train_tabular.py --groups transit stellar --name tabular_lc` | `outputs/<name>_oof.csv`, `outputs/<name>_cv.md`, `models/<name>.joblib` | ~1 min each |
-| Light-curve views | `python scripts/build_views.py --workers 8` | `data/processed/views/<kepid>.npz` (resumable) | ~12 h |
+| Light-curve views | `python scripts/build_views.py --workers 16 --dev-stars 1000` | `data/processed/views/<kepid>.npz` (resumable) | ~1.5 h (all stars: ~6-11 h) |
+| Matched tabular control | `python scripts/train_tabular.py --views-only --groups transit stellar --name tabular_lc_sub` | as above | < 1 min |
 | CNN | `python scripts/train_cnn.py` | `outputs/cnn_oof.csv`, `outputs/cnn_cv.md`, `models/cnn.pt` | ~20 min |
 | Development evaluation | `python scripts/evaluate.py --split dev` | `outputs/evaluation_dev.{md,json,png}` | seconds |
 | Test evaluation | `python scripts/evaluate.py --split test` | `outputs/evaluation_test.{md,json,png}`: run **once**, last | seconds |
 | Report | `python scripts/make_report.py` | `docs/results.md`, `docs/figures/` | seconds |
 
-The view build downloads about 41 GB of Kepler FITS files from MAST into
-`paths.lightcurve_dir` (`configs/default.yaml`). Point it at a local folder outside any
+The view build downloads about 7 MB of Kepler FITS files per star from MAST into
+`paths.lightcurve_dir` (`configs/default.yaml`): ~15 GB for the capped build used here, ~41 GB
+for all stars. Point it at a local folder outside any
 cloud-synced directory; the processed views are only a few MB. Interrupted builds resume
 where they stopped, and stars that fail are listed in `outputs/views_failures.csv` and
 retried on the next run.
@@ -104,8 +120,8 @@ docs/                      Findings, methodology notes and generated results
   development out-of-fold scores. The test set is scored once, at the end.
 - **Fair comparison:** all models are evaluated on the same KOIs. The CNN, which sees no
   centroid data, is compared with both the full tabular baseline and a transit + stellar
-  variant. PR-AUC intervals and model differences come from a paired bootstrap over host
-  stars.
+  variant, and with that variant trained on the CNN's own training KOIs. PR-AUC intervals
+  and model differences come from a paired bootstrap over host stars.
 
 ## Limitations
 
@@ -119,8 +135,8 @@ docs/                      Findings, methodology notes and generated results
 - **Light-curve processing.** Long-cadence data only; moving-median detrending may distort
   very long transits; no dedicated odd/even or secondary-eclipse views (extensions in later
   AstroNet-style work).
-- **Modest CNN.** A small network trained on CPU with fixed hyperparameters and one seed;
-  KOIs without usable light curves are excluded from CNN comparisons.
+- **Modest CNN.** A small network trained on CPU with fixed hyperparameters and one seed, on
+  ~21% of the development KOIs (capped light-curve build); its views carry no absolute depth.
 
 ## Roadmap
 
@@ -129,9 +145,7 @@ docs/                      Findings, methodology notes and generated results
 3. [x] Label mapping and leakage audit
 4. [x] Host-star grouped splitting
 5. [x] Tabular baseline
-6. [ ] Light-curve pipeline: detrending, phase folding, global/local views (code done; full
-   build running)
-7. [ ] 1D CNN (code done; training awaits the view build)
-8. [ ] Precision-recall evaluation and false-positive analysis (code done; dev results for
-   tabular models; CNN and test evaluation pending)
-9. [ ] Results report and documentation (generator done; final interpretation pending)
+6. [x] Light-curve pipeline: detrending, phase folding, global/local views
+7. [x] 1D CNN
+8. [x] Precision-recall evaluation and false-positive analysis
+9. [x] Results report and documentation

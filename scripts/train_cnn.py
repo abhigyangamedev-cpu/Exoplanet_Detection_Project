@@ -71,7 +71,7 @@ def main() -> None:
                     "splits_created_utc": splits_meta["created_utc"],
                     "seed": seed,
                     "n_train": int(len(oof)),
-                    "torch_version": torch.__version__,
+                    "torch_version": str(torch.__version__),
                 },
             },
             model_path,
