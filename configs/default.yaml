@@ -1,0 +1,31 @@
+# Default pipeline configuration. Paths are relative to the repository root.
+
+seed: 42
+
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  models_dir: models
+  outputs_dir: outputs
+
+catalogue:
+  # NASA Exoplanet Archive TAP service, KOI cumulative table.
+  tap_url: https://exoplanetarchive.ipac.caltech.edu/TAP/sync
+  table: cumulative
+
+labels:
+  positive: CONFIRMED
+  negative: FALSE POSITIVE
+  # CANDIDATE KOIs are unvetted: excluded from training/evaluation.
+  exclude: [CANDIDATE]
+
+splits:
+  n_folds: 5
+  group_column: kepid
+
+views:
+  global_bins: 2001
+  local_bins: 201
+  local_durations: 2.0  # half-width of the local view, in transit durations
