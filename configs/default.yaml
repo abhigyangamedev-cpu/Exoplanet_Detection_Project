@@ -9,7 +9,7 @@ paths:
   processed_dir: data/processed
   # Raw Kepler FITS cache (~40-50 GB for the full sample); may be an absolute path, e.g.
   # outside a cloud-synced folder.
-  lightcurve_dir: data/raw/lightcurves
+  lightcurve_dir: C:/kepler_cache
   views_dir: data/processed/views
   models_dir: models
   outputs_dir: outputs
