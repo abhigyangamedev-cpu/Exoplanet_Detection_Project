@@ -249,8 +249,7 @@ test scores, so test recall lands near 0.90 rather than exactly on it.""",
     ),
     (
         "code",
-        """sys.path.insert(0, str(ROOT / "scripts"))
-from operating_points import threshold_for  # same threshold rule as scripts/operating_points.py
+        """from exoplanet.evaluation.pr import threshold_at_recall  # same rule as scripts/operating_points.py
 
 out = config["paths"]["outputs_dir"]
 oof = {m: pd.read_csv(out / f"{m}_oof.csv", index_col=KOI)
@@ -262,7 +261,7 @@ test = pd.read_csv(out / "evaluation_test_scores.csv")
 rows = {}
 for name in ["tabular", "tabular_lc", "tabular_lc_sub", "cnn"]:
     d = oof[name].loc[common] if name in ("tabular", "tabular_lc") else oof[name]
-    thr = threshold_for(d[LABEL].to_numpy(), d["score"].to_numpy(), "recall", 0.90)
+    thr = threshold_at_recall(d[LABEL].to_numpy(), d["score"].to_numpy(), 0.90)
     y, s = test[LABEL].to_numpy(), test[name].to_numpy()
     pred = s >= thr
     rows[name] = {"test_pr_auc": average_precision_score(y, s),

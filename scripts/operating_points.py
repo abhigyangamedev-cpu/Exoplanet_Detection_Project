@@ -19,7 +19,7 @@ from exoplanet.config import load_config
 from exoplanet.data.labels import LABEL
 from exoplanet.data.splits import KOI
 from exoplanet.evaluation.metrics import SCORE
-from exoplanet.evaluation.pr import operating_point
+from exoplanet.evaluation.pr import operating_point, threshold_at_precision, threshold_at_recall
 from exoplanet.reporting import markdown_table
 
 TARGETS = [
@@ -31,21 +31,7 @@ TARGETS = [
 ]
 
 
-def threshold_for(label: np.ndarray, score: np.ndarray, metric: str, target: float) -> float:
-    """Dev threshold: lowest score with precision >= target (maximising recall), or highest
-    score with recall >= target (maximising precision)."""
-    order = np.argsort(-score, kind="stable")
-    s, y = score[order], label[order]
-    tp = np.cumsum(y)
-    precision = tp / np.arange(1, len(y) + 1)
-    recall = tp / y.sum()
-    last = np.r_[s[1:] != s[:-1], True]  # only cut between distinct scores
-    ok = np.flatnonzero(
-        last & ((precision >= target) if metric == "precision" else (recall >= target))
-    )
-    if not len(ok):
-        raise ValueError(f"{metric} never reaches {target}")
-    return float(s[ok[-1]] if metric == "precision" else s[ok[0]])
+THRESHOLD_RULES = {"precision": threshold_at_precision, "recall": threshold_at_recall}
 
 
 def describe(label: np.ndarray, score: np.ndarray, threshold: float) -> dict[str, float]:
@@ -83,7 +69,7 @@ def main() -> None:
     for model in args.models:
         score = oof[model].loc[common, SCORE].to_numpy()
         for metric, target in TARGETS:
-            thr = threshold_for(labels, score, metric, target)
+            thr = THRESHOLD_RULES[metric](labels, score, target)
             key = {"model": model, "target": f"{metric} {target:.2f}"}
             dev_rows.append(key | describe(labels, score, thr))
             if test is not None and model in test.columns:
