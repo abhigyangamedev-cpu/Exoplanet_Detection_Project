@@ -87,8 +87,9 @@ can score), so they differ slightly from the tabular-only numbers in
 
 ## Follow-up experiments (development folds only)
 
-The test set has been used, so later experiments are judged on the development folds only,
-on the 1,123 KOIs with views (`python scripts/evaluate.py --split dev --tag <name>`).
+The test set has been used, so later experiments are judged on the development folds only
+(`python scripts/evaluate.py --split dev --tag <name>`). The depth and odd/even experiments
+use the 1,123 KOIs that had views at the time; the full-development CNN uses all of them.
 
 ### Transit depth as an input (`cnn_depth`)
 
@@ -148,12 +149,61 @@ results stand.
   (meant for flares) appears to remove genuine variability there. It predates these views,
   affects only extreme variables (false positives either way) and has not been changed.
 
+### CNN trained on the full development set (`cnn_full`)
+
+Views were built for the remaining development stars (`python scripts/build_views.py`),
+giving views for 6,665 of 6,677 KOIs (99.8%; `outputs/views_summary.md`). Ten stars failed
+and were not retried: KIC 10462462 (no usable data after detrending) and nine whose MAST
+downloads hit the 600 s timeout during a server slowdown (`outputs/views_failures.csv`).
+The CNN was then retrained unchanged, same architecture and hyperparameters, on the same
+host-star folds (`python scripts/train_cnn.py --name cnn_full`), on a GPU (RTX 2050,
+3 min 23 s for five folds plus the final model). GPU runs are seeded but not bit-identical
+to CPU runs.
+
+On all 5,331 development KOIs that both models can score (`--tag full`):
+
+| model | dev PR-AUC (95% CI) | recall at precision 0.95 |
+|---|---|---|
+| tabular_lc | 0.969 (0.962-0.974) | 0.818 |
+| cnn_full | 0.946 (0.937-0.954) | 0.694 |
+
+`tabular_lc` - `cnn_full` = 0.023 PR-AUC (95% CI 0.014-0.031, p < 0.001).
+
+On the 1,123 KOIs used by the earlier experiments (`--tag full_sub`), where the old CNN can
+also be scored:
+
+| model | dev PR-AUC (95% CI) | recall at precision 0.95 |
+|---|---|---|
+| tabular_lc | 0.960 (0.946-0.973) | 0.741 |
+| cnn_full | 0.949 (0.929-0.965) | 0.719 |
+| tabular_lc_sub | 0.931 (0.905-0.951) | 0.421 |
+| cnn | 0.917 (0.888-0.942) | 0.364 |
+
+- **More training data is the first change that clearly helps the CNN:** `cnn_full` -
+  `cnn` = +0.031 PR-AUC on the same KOIs (95% CI 0.016-0.050, p < 0.001), against +0.009
+  for depth and -0.008 for the odd/even views. It is now level with the full tabular model on
+  these KOIs (`tabular_lc` - `cnn_full` = 0.012, 95% CI -0.006 to 0.029, p = 0.20).
+- **Recall at precision 0.95 roughly doubles** (0.364 to 0.719 on the same KOIs), and the
+  gain is spread across all SNR and period bins, e.g. 0.173 to 0.482 at the lowest SNR and
+  0.145 to 0.518 at the shortest periods. Unlike the earlier recall changes, this one comes
+  with a clear PR-AUC gain.
+- **Faint planets remain the CNN's main weakness.** On all development KOIs it recovers 41%
+  of confirmed planets in the lowest SNR quartile (SNR 5.9-19.2), against 67% for
+  `tabular_lc`, and 48% against 66% at the shortest periods (< 5 days). Across the full set
+  the tabular model still leads at every SNR and period bin.
+- **It still rejects false positives as well as the tabular model:** 97.5% of development
+  false positives fall below its operating threshold (97.0% for `tabular_lc`), including
+  99.1% of stellar-eclipse and 96.4% of centroid-offset cases.
+- Fold-to-fold spread is large: folds 0, 3 and 4 reach 0.955-0.967 PR-AUC, folds 1 and 2
+  about 0.915. Validation PR-AUC plateaus from about epoch 15 (`outputs/cnn_full_cv.md`), so
+  more epochs at this learning rate are unlikely to help.
+- `cnn_full` has not been scored on the test set; the test results in `docs/results.md` are
+  for `cnn`.
+
 ### Most promising next steps
 
-- Train the CNN on the full development set (build the remaining ~3,700 development stars):
-  training-set size measurably limits the matched tabular model (finding 3), and is likely to
-  limit the CNN too. Neither extra input tried so far (depth, odd/even/secondary views)
-  produced a clear gain on ~1,100 training KOIs.
+- Combine `cnn_full` with the tabular model (e.g. its out-of-fold score as a tabular
+  feature, or an average of the two): they now score similarly but use different inputs.
 - Recover more low-SNR and short-period planets, where every light-curve-only model is
   weakest; one candidate is removing sibling planets' transits before folding.
 - Centroid-offset false positives need pixel-level information (centroid or difference-image
