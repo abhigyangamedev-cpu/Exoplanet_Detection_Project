@@ -1,0 +1,100 @@
+# Default pipeline configuration. Paths are relative to the repository root.
+
+seed: 42
+
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  # Raw Kepler FITS cache (~40-50 GB for the full sample); may be an absolute path, e.g.
+  # outside a cloud-synced folder.
+  lightcurve_dir: C:/kepler_cache
+  views_dir: data/processed/views
+  models_dir: models
+  outputs_dir: outputs
+
+catalogue:
+  # NASA Exoplanet Archive TAP service, KOI cumulative table.
+  tap_url: https://exoplanetarchive.ipac.caltech.edu/TAP/sync
+  table: cumulative
+  filename: koi_cumulative.csv  # saved under paths.raw_dir
+  timeout_s: 120
+  retries: 5
+
+labels:
+  positive: CONFIRMED
+  negative: FALSE POSITIVE
+  # CANDIDATE KOIs are unvetted: excluded from training/evaluation.
+  exclude: [CANDIDATE]
+
+sample:
+  # Keep KOIs whose parameters come from these deliveries (null keeps all). Older
+  # deliveries are ~98% FALSE POSITIVE and have systematically missing fields, so mixing
+  # them in lets models learn provenance instead of astrophysics.
+  parameter_provenance: [q1_q17_dr25_koi]
+
+features:
+  # Allowed groups: transit, stellar, centroid, multiplicity (see exoplanet.features.tabular).
+  groups: [transit, stellar, centroid]
+
+leakage:
+  # Univariate audit thresholds (symmetrised AUC; 0.5 = no signal).
+  max_value_auc: 0.9
+  max_missing_auc: 0.6
+
+splits:
+  # Held-out test set plus cross-validation folds on the rest, all grouped by host star
+  # and stratified by label. Saved once and reused by every model.
+  test_fraction: 0.2
+  n_folds: 5
+  group_column: kepid
+  filename: splits.csv  # saved under paths.processed_dir
+
+tabular:
+  # HistGradientBoostingClassifier parameters (fixed; early stopping is disabled because its
+  # internal validation split would not be grouped by host star).
+  params:
+    learning_rate: 0.05
+    max_iter: 300
+    max_leaf_nodes: 15
+    min_samples_leaf: 20
+    l2_regularization: 1.0
+  permutation_repeats: 5
+
+lightcurves:
+  # Kepler long-cadence light curves from MAST (cached under paths.lightcurve_dir).
+  flux_column: pdcsap_flux
+  quality_bitmask: default
+  mask_width: 2.0         # mask +-1 transit duration around every KOI before detrending
+  window_days: 1.5        # moving-median detrending window, days ...
+  window_durations: 3.0   # ... or this many times the star's longest transit, if longer
+  gap_days: 0.75          # segments are detrended separately across larger gaps
+  clip_sigma: 5.0         # clip upward outliers (flares, cosmic rays) above this
+
+views:
+  global_bins: 2001
+  local_bins: 201
+  local_durations: 2.0  # half-width of the local view, in transit durations
+  local_bin_width: 0.16  # local bin width in durations (overlapping; Shallue & Vanderburg 2018)
+
+cnn:
+  # Fixed epoch count: validation folds are monitored, never used for early stopping.
+  epochs: 30
+  batch_size: 64
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  flip_augment: true  # random time reversal of both views
+  arch:
+    global: {channels: [8, 16, 32, 64, 64], kernel: 5, pool: 5, pool_stride: 2}
+    local: {channels: [16, 32], kernel: 5, pool: 7, pool_stride: 2}
+    fc: [128]
+    dropout: 0.3
+
+evaluation:
+  # Models compared on the KOIs they can all score; artefacts are found by name
+  # (outputs/<name>_oof.csv, models/<name>.joblib or .pt).
+  # tabular_lc_sub: transit + stellar trained only on KOIs with views (the CNN's training data).
+  models: [tabular, tabular_lc, tabular_lc_sub, cnn]
+  target_precision: 0.95  # operating-point threshold, chosen on dev out-of-fold scores
+  n_bootstrap: 1000       # host-star cluster bootstrap resamples for PR-AUC intervals
