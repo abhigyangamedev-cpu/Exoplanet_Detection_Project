@@ -20,13 +20,29 @@ Held-out test set (1,334 KOIs), PR-AUC with 95% host-star bootstrap intervals:
   positives it accepts are centroid-offset cases that photometry cannot reveal. Giving it
   transit depth as an input helped only marginally (+0.009 dev PR-AUC).
 - The CNN was trained on 21% of the development KOIs, because light curves were built for all
-  test stars but only 1,000 development stars.
+  test stars but only 1,000 development stars. Retrained later on all development KOIs
+  (`cnn_full`, development folds only), it reaches dev PR-AUC 0.946 against 0.969 for
+  `tabular_lc`, and draws level with it on the earlier 1,123-KOI comparison.
+- Leakage check: adding the six vetting columns the audit removes lifts the transit + stellar
+  model from 0.969 to 0.999 dev PR-AUC; those six columns alone score 0.999
+  ([before and after](docs/leakage_audit.md#before-and-after)).
+- Success criteria (PR-AUC >= 0.80, recall >= 0.90 at a stated precision) are met by both
+  tabular models on the test set and by `cnn_full` on dev
+  ([details](docs/evaluation.md#success-criteria)).
+
+**What the scores mean.** The models reproduce a vetting judgement: a high score says a
+signal resembles KOIs that were confirmed, and that it is worth follow-up. It is not a planet
+detection; confirmation requires follow-up observation.
 
 Interpretation and next steps: [docs/evaluation.md](docs/evaluation.md). All generated
 numbers: [docs/results.md](docs/results.md), produced by `scripts/make_report.py`. Background:
 
+- **Walkthrough notebook: [notebooks/walkthrough.ipynb](notebooks/walkthrough.ipynb)**, which
+  runs end to end on cached data
+- [Data card](docs/data_card.md): catalogue release and query, label mapping, acknowledgements
 - [Catalogue findings](docs/catalogue_findings.md): classes, provenance, leakage evidence
-- [Leakage audit](docs/leakage_audit.md) and [results](docs/leakage_audit_results.md)
+- [Leakage audit](docs/leakage_audit.md), [every column](docs/leakage_columns.md) and
+  [results](docs/leakage_audit_results.md)
 - [Splits](docs/splits.md): host-star grouped, label-stratified partitions
 - [Tabular baseline](docs/tabular_baseline.md): why catalogue features score so high
 - [Light-curve pipeline](docs/lightcurve_pipeline.md): detrending, folding, views
@@ -60,6 +76,15 @@ Run from the repository root, in order. Times are for a 12-core CPU without a GP
 | Development evaluation | `python scripts/evaluate.py --split dev` | `outputs/evaluation_dev.{md,json,png}` | seconds |
 | Test evaluation | `python scripts/evaluate.py --split test` | `outputs/evaluation_test.{md,json,png}`: run **once**, last | seconds |
 | Report | `python scripts/make_report.py` | `docs/results.md`, `docs/figures/` | seconds |
+| Leakage before/after | `python scripts/leakage_inflation.py` | `outputs/leakage_inflation.md` | ~1 min |
+| Operating points | `python scripts/operating_points.py` | `outputs/operating_points.md` | seconds |
+| PR bands | `python scripts/plot_pr_bands.py <scores.csv> --models ... --title ... --output ...` | PNG | ~1 min |
+| Period check | `python scripts/check_periods.py` | `outputs/period_check.md` | ~1 min |
+| Walkthrough | `jupyter lab notebooks/walkthrough.ipynb` (`pip install -e ".[notebook]"`) | executed notebook | ~1 min |
+
+`train_tabular.py` and `train_cnn.py` take `--class-weight balanced` (tested, not used by the
+reported models; see [evaluation.md](docs/evaluation.md#class-weighting)); `train_cnn.py`
+takes `--device cuda` and uses a GPU automatically when one is available.
 
 The view build downloads about 7 MB of Kepler FITS files per star from MAST into
 `paths.lightcurve_dir` (`configs/default.yaml`): ~15 GB for the capped build used here, ~41 GB
@@ -87,6 +112,7 @@ src/exoplanet/
     lightcurves.py         MAST light-curve retrieval and per-star view files
   features/
     leakage.py             Column deny policy and leakage checks
+    columns.py             Meaning of every catalogue column; per-column audit table
     tabular.py             Allowed catalogue feature groups
     lightcurve.py          Stitching, detrending, phase folding, global/local views
   models/
@@ -96,9 +122,10 @@ src/exoplanet/
     metrics.py             Shared out-of-fold metrics
     pr.py                  PR-AUC with host-star bootstrap, thresholds, operating points
     false_positives.py     Error analysis by Robovetter flag, SNR and period
-    plots.py               Precision-recall figure
+    plots.py               Precision-recall figures, with bootstrap bands
     report.py              Results report assembly
 scripts/                   Command-line entry points (see the table above)
+notebooks/walkthrough.ipynb  End-to-end walkthrough on cached data (report companion)
 tests/                     Unit tests (synthetic data; no network access needed)
 docs/                      Findings, methodology notes and generated results
 ```
@@ -131,12 +158,14 @@ docs/                      Findings, methodology notes and generated results
 - **Vetted KOIs only.** Excluding candidates leaves the easier, already-resolved cases;
   performance on the unresolved candidates is likely lower and cannot be measured here.
 - **Catalogue ephemerides.** Light curves are folded on catalogue periods, epochs and
-  durations; an error in those propagates into the views.
+  durations; an error in those propagates into the views. A period check flags views with no
+  coherent transit (2.9%, almost all false positives; see
+  [lightcurve_pipeline.md](docs/lightcurve_pipeline.md#period-check)).
 - **Light-curve processing.** Long-cadence data only; moving-median detrending may distort
-  very long transits; no dedicated odd/even or secondary-eclipse views (extensions in later
-  AstroNet-style work).
-- **Modest CNN.** A small network trained on CPU with fixed hyperparameters and one seed, on
-  ~21% of the development KOIs (capped light-curve build); its views carry no absolute depth.
+  very long transits. Odd/even and secondary-eclipse views were tried and did not help.
+- **Modest CNN.** A small network with fixed hyperparameters and one seed; the test-scored
+  version saw ~21% of the development KOIs (capped light-curve build); its views carry no
+  absolute depth.
 
 ## Roadmap
 
