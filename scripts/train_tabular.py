@@ -47,6 +47,12 @@ def main() -> None:
         "--name", default="tabular", help="model name for artefacts (default: tabular)"
     )
     parser.add_argument(
+        "--class-weight",
+        choices=["balanced"],
+        default=None,
+        help="weight samples by class (default: tabular.params.class_weight, unweighted if unset)",
+    )
+    parser.add_argument(
         "--output", default=None, help="report path (default: outputs/<name>_cv.md)"
     )
     args = parser.parse_args()
@@ -54,7 +60,10 @@ def main() -> None:
     config = load_config(args.config)
     seed = config["seed"]
     set_seed(seed)
-    tc, groups = config["tabular"], args.groups or config["features"]["groups"]
+    tc, groups = dict(config["tabular"]), args.groups or config["features"]["groups"]
+    tc["params"] = dict(tc["params"])
+    if args.class_weight is not None:
+        tc["params"]["class_weight"] = args.class_weight
 
     sample = label_catalogue(load_koi_catalogue(config), config).set_index(KOI)
     features = select_features(sample, groups)

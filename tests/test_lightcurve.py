@@ -15,6 +15,7 @@ from exoplanet.features.lightcurve import (
     stitch,
     transit_mask,
     transit_number,
+    view_transit_snr,
 )
 
 CADENCE = 29.4 / 60 / 24  # Kepler long cadence, days
@@ -231,3 +232,16 @@ def test_scale_like_uses_reference_scale():
     ref = np.array([0.0, 0.0, -2.0, 0.0, 0.0])
     np.testing.assert_allclose(scale_like(np.array([0.0, -1.0, 0.0]), ref), [0, -0.5, 0])
     assert (scale_like(np.full(3, np.nan), ref) == 0).all()
+
+
+def test_view_transit_snr_detects_a_wrong_period():
+    """Folding on the catalogue period stacks the transits; a 2% period error smears them
+    across phase over ~48 orbits, so the centre of the local view carries no dip."""
+    time, flux = stitch(quarters())
+    mask = transit_mask(time, [PLANET], 2.0)
+    t, f = detrend(time, flux, mask, window=1.0, gap=0.75)
+    right = make_views(t, f, PLANET, 201, 61, 2.0, 0.16)
+    wrong_eph = Ephemeris(PLANET.period * 1.02, PLANET.epoch, PLANET.duration)
+    wrong = make_views(t, f, wrong_eph, 201, 61, 2.0, 0.16)
+    assert view_transit_snr(right.local_view, 2.0) > 10
+    assert view_transit_snr(wrong.local_view, 2.0) < 3

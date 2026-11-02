@@ -59,3 +59,33 @@ tabular models use. Positive fractions of the sampled development folds range fr
 0.46 (overall 0.39, against 0.41 for the full sample), mostly sampling noise at ~220 KOIs per
 fold. Building the remaining development stars (`--dev-stars` omitted) would let the CNN
 train on the full development set.
+
+## Full build (all development stars)
+
+The remaining development stars were built later (`python scripts/build_views.py --workers
+16`): views now exist for 6,665 of 6,677 KOIs (99.8%) on 5,820 of 5,830 stars. Ten stars
+failed: KIC 10462462 (no usable data after detrending) and nine whose MAST downloads timed
+out at 600 s during a server slowdown (`outputs/views_failures.csv`); they were not retried.
+`cnn_full` trains on this full set (see [evaluation.md](evaluation.md)).
+
+## Period check
+
+Folding on a wrong period smears the transits across phase, leaving a view with no dip at
+mid-transit, which a model would then learn from as if it were a real signal. Every view is
+checked (`python scripts/check_periods.py`; `outputs/period_check.md`):
+
+- **Metric.** `view_transit_snr` (`exoplanet.features.lightcurve`) divides the depth of the
+  local view's centre (within a quarter duration of mid-transit) by the robust scatter of
+  its out-of-transit bins. A unit test folds a synthetic light curve on its true period
+  (value > 10) and on a period 2% off, which smears ~48 transits across phase (value < 3).
+- **Result.** 190 of 6,665 views (2.9%) fall below 3. 184 of them are false positives, and
+  155 of those carry the Robovetter's not-transit-like flag (22% of all false positives with
+  views do): they are signals that never were coherent transits, which is exactly what the
+  check should find. The CNN scores them near zero.
+- **Planets.** Only 6 confirmed planets are flagged, all faint (catalogue SNR 8.5-13), where
+  the folded dip is barely above the noise. No high-SNR planet has a flat view, so there is
+  no sign of mis-stated catalogue periods among the planets.
+- `view_transit_snr` follows the catalogue SNR (Spearman 0.66), as it should if the views
+  are folded correctly.
+- Flagged KOIs are reported, not removed: dropping them would remove mostly false
+  positives, which is itself a form of label leakage.

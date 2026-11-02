@@ -9,6 +9,7 @@ from exoplanet.evaluation.pr import (
     operating_point,
     star_bootstrap_indices,
     threshold_at_precision,
+    threshold_at_recall,
 )
 
 
@@ -125,3 +126,13 @@ def test_plot_pr_curves_writes_png(tmp_path, scores):
     assert path.exists() and path.read_bytes()[:4] == b"\x89PNG"
     with pytest.raises(ValueError, match="at most"):
         plot_pr_curves(scores, ["a", "b", "c", "d", "e"], {}, "t", tmp_path / "x.png")
+
+
+def test_threshold_at_recall_is_highest_threshold_reaching_target():
+    y = np.array([1, 1, 0, 1, 0, 1, 0, 0])
+    s = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2])
+    # Recall 0.75 is first reached at score 0.6 (3 of 4 planets); a higher cut finds only 2.
+    assert threshold_at_recall(y, s, 0.75) == 0.6
+    assert threshold_at_recall(y, s, 1.0) == 0.4
+    op = operating_point(y, s, threshold_at_recall(y, s, 0.75))
+    assert op["recall"] == 0.75 and op["precision"] == 0.75

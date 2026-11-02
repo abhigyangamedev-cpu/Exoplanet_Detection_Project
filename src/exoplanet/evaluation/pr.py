@@ -90,6 +90,19 @@ def threshold_at_precision(label: np.ndarray, score: np.ndarray, target: float) 
     return float(thresholds[ok[0]])
 
 
+def threshold_at_recall(label: np.ndarray, score: np.ndarray, target: float) -> float:
+    """Highest score threshold whose recall reaches ``target`` (maximising precision there).
+
+    Choose it on development scores and only apply it to the test set; on new data the
+    recall achieved lands near, not exactly on, the target.
+    """
+    _, recall, thresholds = precision_recall_curve(label, score)
+    ok = np.flatnonzero(recall[:-1] >= target)
+    if not len(ok):
+        raise ValueError(f"recall never reaches {target}")
+    return float(thresholds[ok[-1]])
+
+
 def max_precision_threshold(label: np.ndarray, score: np.ndarray) -> float:
     """Threshold with the highest precision (the lowest such threshold, maximising recall):
     a fallback for models whose precision never reaches the target.

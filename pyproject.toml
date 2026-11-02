@@ -27,6 +27,12 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+notebook = [
+    "jupyterlab>=4.0",
+    "nbclient>=0.10",
+    "nbformat>=5.9",
+    "ipykernel>=6.29",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
