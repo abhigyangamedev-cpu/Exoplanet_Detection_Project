@@ -168,6 +168,25 @@ def scale_like(view: np.ndarray, reference: np.ndarray) -> np.ndarray:
     return (view - offset) / depth if depth > 0 else view - offset
 
 
+def view_transit_snr(local_view: np.ndarray, local_durations: float) -> float:
+    """How clearly the folded local view shows a dip at mid-transit.
+
+    Depth of the central bins (within a quarter duration of mid-transit) divided by the
+    robust scatter of the out-of-transit bins (beyond one duration). A correct period
+    stacks every transit at the centre and gives a large value; a mis-stated period
+    smears the transits across phase, leaving a centre no deeper than the noise (values
+    near 0). Views are normalised, so this measures shape coherence, not absolute depth.
+    """
+    n = len(local_view)
+    x = ((np.arange(n) + 0.5) / n * 2 - 1) * local_durations
+    centre = local_view[np.abs(x) < 0.25]
+    out = local_view[np.abs(x) > 1.0]
+    if not len(centre) or len(out) < 5 or not np.isfinite(local_view).all():
+        return float("nan")
+    noise = MAD_TO_STD * np.median(np.abs(out - np.median(out)))
+    return float((np.median(out) - np.median(centre)) / max(noise, 0.01))
+
+
 def transit_number(time: np.ndarray, period: float, epoch: float) -> np.ndarray:
     """Index of the nearest transit (0 at ``epoch``)."""
     return np.round((time - epoch) / period).astype(int)

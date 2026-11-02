@@ -85,6 +85,101 @@ can score), so they differ slightly from the tabular-only numbers in
    (K00904.02, K00904.03, K00282.03); one possible cause, not verified here, is sibling
    planets' transits left in the folded light curve.
 
+## What a high score means
+
+The models reproduce a **vetting judgement**: a score near 1 means the signal resembles KOIs
+that the Kepler team and follow-up programmes confirmed. It is not a planet detection.
+Confirming a planet requires follow-up observation (radial velocities, high-resolution
+imaging or statistical validation), and every "planet found" below means "KOI the model
+would send to follow-up".
+
+## Success criteria
+
+The brief asks for PR-AUC >= 0.80 after the leakage audit, with recall >= 0.90 at a stated
+precision. Both are measured on the audited models; recall-0.90 thresholds are chosen on
+development out-of-fold scores and applied unchanged to the saved test scores
+(`python scripts/operating_points.py`; `outputs/operating_points.md`).
+
+| Model | Test PR-AUC (95% CI) | Precision at recall 0.90, dev threshold on test | Meets both |
+|---|---|---|---|
+| `tabular` | 0.993 (0.984-0.998) | 0.994 (recall 0.916) | yes |
+| `tabular_lc` | 0.966 (0.947-0.982) | 0.932 (recall 0.901) | yes |
+| `cnn` (21% of dev KOIs) | 0.903 (0.870-0.934) | 0.848 (recall 0.881) | PR-AUC yes; recall fell just short on test |
+| `cnn_full` (dev only) | dev 0.946 (0.937-0.954) | dev 0.871 at recall 0.900 | yes on dev; not test-scored |
+
+A threshold chosen on development scores lands near, not exactly on, recall 0.90 when
+applied to the test set; the recall achieved is shown in brackets. It is also slightly
+sensitive to which development KOIs it is set on: set on all 5,342 development KOIs instead
+of the 5,331 shared with `cnn_full`, `tabular_lc` reaches test recall 0.896 at precision
+0.931.
+
+![PR curves with bootstrap bands, test set](figures/pr_bands_test.png)
+
+![PR curves with bootstrap bands, development folds](figures/pr_bands_dev_full.png)
+
+Shaded bands are 95% host-star bootstrap intervals of the interpolated precision at each
+recall (1,000 resamples; `python scripts/plot_pr_bands.py`). In the high-recall region the
+CNN's band sits clearly below the tabular models', while `tabular_lc` and `tabular_lc_sub`
+overlap.
+
+## Operating point and follow-up cost
+
+Telescope time for follow-up is the scarce resource: every false positive sent on costs a
+campaign that finds nothing, and every planet held back is a planet not confirmed. The table
+expresses each candidate threshold in those terms, on the 5,331 development KOIs every model
+scores (thresholds chosen there).
+
+| Model | Operating point | Planets sent on | Planets held back | Wasted follow-ups | Follow-ups per planet |
+|---|---|---|---|---|---|
+| `tabular` | precision 0.95 | 2,135 | 44 | 112 | 1.05 |
+| `tabular` | recall 0.90 | 1,962 | 217 | 28 | 1.01 |
+| `tabular_lc` | precision 0.95 | 1,782 | 397 | 93 | 1.05 |
+| `tabular_lc` | recall 0.90 | 1,962 | 217 | 174 | 1.09 |
+| `cnn_full` | precision 0.95 | 1,512 | 667 | 79 | 1.05 |
+| `cnn_full` | recall 0.90 | 1,962 | 217 | 291 | 1.15 |
+
+**Chosen operating point: precision 0.95**, i.e. at most one wasted follow-up for every 19
+planets confirmed (1.05 targets observed per planet). Reasons:
+
+- Follow-up is far more expensive than vetting: a radial-velocity confirmation can take
+  many nights on a large telescope, so the false-positive rate, not the number of candidates,
+  limits how many planets a programme confirms.
+- Precision 0.95 keeps that waste fixed across models, so models are compared on how many
+  planets they let through at the same cost.
+- A survey that must not miss planets would choose recall 0.90 instead (the brief's
+  success criterion); the table gives its cost. For `tabular_lc` it adds 180 planets and
+  81 wasted follow-ups; for `cnn_full`, 450 planets and 212 wasted follow-ups.
+
+Thresholds are always set on development scores. On the test set, precision at the dev
+threshold was 0.962 (`tabular`), 0.978 (`tabular_lc`) and 0.937 (`cnn`) against the 0.95
+target.
+
+## Class weighting
+
+False positives outnumber planets (59% vs 41% in the modelling sample). Both model types
+can weight classes identically: `--class-weight balanced` sets scikit-learn's
+`class_weight="balanced"` for gradient boosting (weights n / (2 n_class)) and the same
+relative weight, `pos_weight` = n_negative / n_positive, in the CNN's loss
+(`exoplanet.models.cnn.positive_weight`). Weighted models were trained on the same folds
+and compared on development out-of-fold scores (`--tag weighted`, `--tag weighted_tab`):
+
+| Model | Unweighted dev PR-AUC | Balanced dev PR-AUC | Difference (95% CI) |
+|---|---|---|---|
+| `tabular` | 0.994 | 0.994 | -0.000 (-0.000 to 0.000), p = 0.39 |
+| `tabular_lc` | 0.969 | 0.967 | -0.002 (-0.003 to 0.000), p = 0.02 |
+| `cnn_full` | 0.946 | 0.935 | -0.011 (-0.017 to -0.005), p < 0.001 |
+
+- **Weighting does not help.** The imbalance is mild, and the operating threshold is chosen
+  separately on development scores, which already compensates for any shift in score
+  calibration. PR-AUC is a ranking metric, so reweighting can only change it by changing
+  what the model learns.
+- **The CNN gets slightly worse** with weighting, though this is a single training run per
+  setting; seed-to-seed variation is not captured by the star bootstrap.
+- **Decision:** all reported models are unweighted, identically for both model types, with
+  class balance handled by the precision-recall evaluation and the dev-chosen threshold. The
+  weighted variants (`tabular_w`, `tabular_lc_w`, `cnn_full_w`) remain reproducible with
+  `--class-weight balanced`.
+
 ## Follow-up experiments (development folds only)
 
 The test set has been used, so later experiments are judged on the development folds only
