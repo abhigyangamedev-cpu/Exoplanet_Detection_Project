@@ -10,6 +10,7 @@ from exoplanet.models.cnn import (
     attach_scalars,
     cross_validate,
     fit_final,
+    positive_weight,
     predict,
     train,
 )
@@ -203,3 +204,21 @@ def test_extra_local_channels_carry_signal():
     assert pooled_pr_auc(oof) > 0.9
     model = fit_final(views, splits, params | {"epochs": 1}, 0)
     assert model.local_views == ("local_view", "odd_view", "even_view")
+
+
+def test_positive_weight_balanced_matches_sklearn_ratio():
+    y = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    assert positive_weight(y, None) is None
+    # sklearn "balanced": w_c = n / (2 n_c) -> w_pos / w_neg = n_neg / n_pos = 3
+    assert positive_weight(y, "balanced").item() == pytest.approx(3.0)
+    with pytest.raises(ValueError, match="class_weight"):
+        positive_weight(y, "inverse")
+
+
+def test_balanced_training_runs_and_learns(data):
+    views, splits = data
+    labels = splits.set_index(KOI)["label"].loc[views.index]
+    _, curve = train(
+        views, labels, PARAMS | {"class_weight": "balanced"}, seed=0, monitor=(views, labels)
+    )
+    assert curve[-1] > 0.9

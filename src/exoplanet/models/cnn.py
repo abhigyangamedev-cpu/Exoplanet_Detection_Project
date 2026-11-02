@@ -137,6 +137,19 @@ def predict(model: TwoTowerCNN, views: pd.DataFrame, batch_size: int = 512) -> n
     return torch.cat(out).cpu().numpy() if out else np.empty(0)
 
 
+def positive_weight(y: torch.Tensor, class_weight: str | None) -> torch.Tensor | None:
+    """``pos_weight`` for ``BCEWithLogitsLoss``. ``"balanced"`` weights positives by
+    n_negative / n_positive: the same relative class weights as scikit-learn's
+    ``class_weight="balanced"`` (n / (2 n_class)), so both model types are weighted alike.
+    """
+    if class_weight is None:
+        return None
+    if class_weight != "balanced":
+        raise ValueError(f"class_weight must be None or 'balanced', got {class_weight!r}")
+    n_pos = y.sum()
+    return (len(y) - n_pos) / n_pos
+
+
 def train(
     views: pd.DataFrame,
     labels: pd.Series,
@@ -149,7 +162,8 @@ def train(
 
     ``params["device"]`` (default ``"cpu"``) selects where training runs; the training set is
     moved there once. The returned model is always on the CPU. GPU runs are seeded but not
-    bit-identical to CPU runs (different kernels).
+    bit-identical to CPU runs (different kernels). ``params["class_weight"]`` (None or
+    ``"balanced"``) weights the loss by class; see ``positive_weight``.
     """
     torch.manual_seed(seed)
     device = torch.device(params.get("device") or "cpu")
@@ -168,7 +182,7 @@ def train(
     optimiser = torch.optim.AdamW(
         model.parameters(), lr=params["learning_rate"], weight_decay=params["weight_decay"]
     )
-    loss_fn = nn.BCEWithLogitsLoss()
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=positive_weight(y, params.get("class_weight")))
     generator = torch.Generator().manual_seed(seed)
     curve = []
     for _ in range(params["epochs"]):

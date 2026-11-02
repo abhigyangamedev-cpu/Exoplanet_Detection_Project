@@ -48,6 +48,12 @@ def main() -> None:
         "--no-final", action="store_true", help="skip refitting on all dev KOIs (CV only)"
     )
     parser.add_argument(
+        "--class-weight",
+        choices=["balanced"],
+        default=None,
+        help="weight the loss by class (default: cnn.class_weight, unweighted if unset)",
+    )
+    parser.add_argument(
         "--device",
         default="auto",
         help="torch device for training, e.g. cpu or cuda (default: auto, cuda if available)",
@@ -62,6 +68,9 @@ def main() -> None:
         params["scalars"] = args.scalars
     if args.local_views is not None:
         params["local_views"] = args.local_views
+    if args.class_weight is not None:
+        params["class_weight"] = args.class_weight
+    params.setdefault("class_weight", None)
     device = args.device
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -134,7 +143,7 @@ def main() -> None:
         f"- {params['epochs']} epochs (fixed; no early stopping), batch {params['batch_size']}, "
         f"AdamW lr {params['learning_rate']}, weight decay {params['weight_decay']}, "
         f"flip augmentation {params['flip_augment']}; seed {seed}; torch {torch.__version__}; "
-        f"device {device}",
+        f"device {device}; class weight {params['class_weight'] or 'none'}",
         f"- Architecture: `{params['arch']}`",
         "",
         "## Per-fold metrics",
