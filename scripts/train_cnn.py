@@ -47,6 +47,11 @@ def main() -> None:
     parser.add_argument(
         "--no-final", action="store_true", help="skip refitting on all dev KOIs (CV only)"
     )
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help="torch device for training, e.g. cpu or cuda (default: auto, cuda if available)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -57,6 +62,11 @@ def main() -> None:
         params["scalars"] = args.scalars
     if args.local_views is not None:
         params["local_views"] = args.local_views
+    device = args.device
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    params["device"] = device
+    print(f"Training on {device}")
     scalars = params.get("scalars") or []
     assert_no_leakage(scalars)
 
@@ -123,7 +133,8 @@ def main() -> None:
         f"positive fraction, {oof['label'].mean():.3f})",
         f"- {params['epochs']} epochs (fixed; no early stopping), batch {params['batch_size']}, "
         f"AdamW lr {params['learning_rate']}, weight decay {params['weight_decay']}, "
-        f"flip augmentation {params['flip_augment']}; seed {seed}; torch {torch.__version__}",
+        f"flip augmentation {params['flip_augment']}; seed {seed}; torch {torch.__version__}; "
+        f"device {device}",
         f"- Architecture: `{params['arch']}`",
         "",
         "## Per-fold metrics",

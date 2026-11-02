@@ -155,6 +155,18 @@ def test_deterministic(data):
     np.testing.assert_array_equal(predict(a, views), predict(b, views))
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU")
+def test_trains_on_gpu_and_returns_cpu_model(data):
+    views, splits = data
+    labels = splits.set_index(KOI)["label"].loc[views.index]
+    model, curve = train(
+        views, labels, PARAMS | {"device": "cuda"}, seed=0, monitor=(views, labels)
+    )
+    assert next(model.parameters()).device.type == "cpu"
+    assert curve[-1] > 0.9
+    np.testing.assert_allclose(predict(model.cuda(), views), predict(model.cpu(), views), atol=1e-5)
+
+
 def test_requires_koi_index(data):
     views, splits = data
     with pytest.raises(ValueError, match="indexed by"):

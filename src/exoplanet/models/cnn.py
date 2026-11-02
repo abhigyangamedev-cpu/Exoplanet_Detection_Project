@@ -124,14 +124,17 @@ def view_tensors(
 
 @torch.no_grad()
 def predict(model: TwoTowerCNN, views: pd.DataFrame, batch_size: int = 512) -> np.ndarray:
-    """Positive-class probabilities, in the row order of ``views``."""
+    """Positive-class probabilities, in the row order of ``views``. Runs on the model's
+    device.
+    """
     model.eval()
-    g, l_, s = view_tensors(views, model.local_views)
+    device = next(model.parameters()).device
+    g, l_, s = (t.to(device) for t in view_tensors(views, model.local_views))
     out = [
         torch.sigmoid(model(g[i : i + batch_size], l_[i : i + batch_size], s[i : i + batch_size]))
         for i in range(0, len(g), batch_size)
     ]
-    return torch.cat(out).numpy() if out else np.empty(0)
+    return torch.cat(out).cpu().numpy() if out else np.empty(0)
 
 
 def train(
@@ -143,8 +146,13 @@ def train(
 ) -> tuple[TwoTowerCNN, list[float]]:
     """Train for ``params["epochs"]`` epochs. Returns the model and, if ``monitor`` views and
     labels are given, their PR-AUC after each epoch (for learning curves only).
+
+    ``params["device"]`` (default ``"cpu"``) selects where training runs; the training set is
+    moved there once. The returned model is always on the CPU. GPU runs are seeded but not
+    bit-identical to CPU runs (different kernels).
     """
     torch.manual_seed(seed)
+    device = torch.device(params.get("device") or "cpu")
     local_views = tuple(params.get("local_views") or (LOCAL,))
     g, l_, s = view_tensors(views, local_views)
     y = torch.as_tensor(labels.to_numpy(), dtype=torch.float32)
@@ -155,6 +163,8 @@ def train(
         # Standardise scalars with training-set statistics only.
         model.scalar_mean.copy_(torch.from_numpy(np.nanmean(s.numpy(), axis=0)))
         model.scalar_std.copy_(torch.from_numpy(np.nanstd(s.numpy(), axis=0)).clamp_min(1e-6))
+    model.to(device)
+    g, l_, s, y = g.to(device), l_.to(device), s.to(device), y.to(device)
     optimiser = torch.optim.AdamW(
         model.parameters(), lr=params["learning_rate"], weight_decay=params["weight_decay"]
     )
@@ -165,11 +175,12 @@ def train(
         model.train()
         order = torch.randperm(len(y), generator=generator)
         for start in range(0, len(y), params["batch_size"]):
-            idx = order[start : start + params["batch_size"]]
+            idx = order[start : start + params["batch_size"]].to(device)
             gb, lb = g[idx], l_[idx]
             if params["flip_augment"]:
                 # Views are symmetric about mid-transit, so time reversal is label-preserving.
-                flip = torch.rand(len(idx), generator=generator) < 0.5
+                # Drawn on the CPU generator, so the augmentation sequence is device-independent.
+                flip = (torch.rand(len(idx), generator=generator) < 0.5).to(device)
                 gb = torch.where(flip[:, None, None], gb.flip(2), gb)
                 lb = torch.where(flip[:, None, None], lb.flip(2), lb)
             optimiser.zero_grad()
@@ -177,7 +188,7 @@ def train(
             optimiser.step()
         if monitor is not None:
             curve.append(average_precision_score(monitor[1], predict(model, monitor[0])))
-    return model, curve
+    return model.cpu(), curve
 
 
 def _dev_views(views: pd.DataFrame, splits: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
