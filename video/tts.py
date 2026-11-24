@@ -187,26 +187,36 @@ def caption_cues(text: str, words: list[Word], duration: float,
     ]
 
 
-def build_all(voice: str, samples: bool) -> dict:
-    numbers = json.loads((BUILD_DIR / "data" / "numbers.json").read_text(encoding="utf-8"))
-    scenes = load_narration(VIDEO_DIR / "narration.md", numbers)
+def write_manifest(audios: dict[str, Audio], texts: dict[str, str], voice: str,
+                   path: Path = AUDIO_DIR / "manifest.json") -> dict:
+    """Write the audio manifest (per-scene wav, duration, n_words plus totals) for SCENE_IDS."""
     manifest: dict = {}
     for scene_id in SCENE_IDS:
-        text = scenes[scene_id]
-        audio = synthesize(scene_id, text, voice, AUDIO_DIR)
         manifest[scene_id] = {
-            "wav": audio.wav_path.relative_to(REPO_ROOT).as_posix(),
-            "duration": round(audio.duration, 3),
-            "n_words": len(text.split()),
+            "wav": audios[scene_id].wav_path.resolve().relative_to(REPO_ROOT).as_posix(),
+            "duration": round(audios[scene_id].duration, 3),
+            "n_words": len(texts[scene_id].split()),
         }
-        print(f"{scene_id:16s} {audio.duration:6.2f} s  {len(text.split()):4d} words")
     total = sum(manifest[s]["duration"] for s in SCENE_IDS)
     manifest["voice"] = voice
     manifest["total_duration"] = round(total, 3)
     manifest["scene_pad"] = SCENE_PAD
     manifest["total_with_padding"] = round(total + SCENE_PAD * len(SCENE_IDS), 3)
-    (AUDIO_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"total {total:.2f} s; with padding {manifest['total_with_padding']:.2f} s")
+    Path(path).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
+def build_all(voice: str, samples: bool) -> dict:
+    numbers = json.loads((BUILD_DIR / "data" / "numbers.json").read_text(encoding="utf-8"))
+    scenes = load_narration(VIDEO_DIR / "narration.md", numbers)
+    audios: dict[str, Audio] = {}
+    for scene_id in SCENE_IDS:
+        text = scenes[scene_id]
+        audios[scene_id] = synthesize(scene_id, text, voice, AUDIO_DIR)
+        print(f"{scene_id:16s} {audios[scene_id].duration:6.2f} s  {len(text.split()):4d} words")
+    manifest = write_manifest(audios, scenes, voice)
+    print(f"total {manifest['total_duration']:.2f} s; "
+          f"with padding {manifest['total_with_padding']:.2f} s")
     if samples:
         for name, sample_voice in SAMPLE_VOICES.items():
             audio = synthesize("01_hook", scenes["01_hook"], sample_voice, AUDIO_DIR)
