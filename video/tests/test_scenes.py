@@ -185,11 +185,13 @@ VETTING = {"koi_score", "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_
 
 
 def score_bar(draw, t: float):
-    """(top of the score bar in score units, its face colour) at t."""
+    """(top of the score bar in score units, its face colour) at t, or None if not drawn."""
     fig = style.new_figure(960, 540)
     draw(fig, t)
-    bar = next(p for p in fig.findobj(lambda a: a.get_gid() == "score_bar"))
-    return bar.get_y() + bar.get_height(), bar.get_facecolor()
+    bars = fig.findobj(lambda a: a.get_gid() == "score_bar")
+    if not bars:
+        return None
+    return bars[0].get_y() + bars[0].get_height(), bars[0].get_facecolor()
 
 
 @needs_data
@@ -208,30 +210,71 @@ def test_leakage_shows_counts_names_and_the_jump():
     n = ctx.numbers
     audited, leaked = f"{n['leak_lc_audited']:.3f}", f"{n['leak_lc_plus_vetting']:.3f}"
     n_kept = n["n_audit_columns"] - n["n_audit_removed"]
+    n_lc = n["leak_lc_n_features"]
+    n_added = n["leak_lc_plus_vetting_n_features"] - n_lc
+    at = {phrase: scenes.cue_fraction(ctx, phrase, -1.0) * ctx.duration
+          for phrase in ("Our score", "jumps", "Too good")}
+    assert all(t >= 0 for t in at.values())             # the cues exist in the narration
 
-    early = " ".join(drawn_texts(draw, 0.05 * ctx.duration))
-    assert leaked not in early and audited not in early
+    def texts(t):
+        return " ".join(" ".join(drawn_texts(draw, t)).split())
 
-    sorted_ = drawn_texts(draw, 0.6 * ctx.duration)
-    assert VETTING <= set(sorted_)                       # the six real names are on screen
-    assert str(n["n_audit_removed"]) in sorted_
-    assert f"{n_kept} kept columns" in sorted_           # what the audited score was trained on
-    top, colour = score_bar(draw, 0.6 * ctx.duration)
+    # no score before the narration introduces it, though the six are already waiting
+    before = at["Our score"] - 0.3
+    assert score_bar(draw, before) is None
+    assert audited not in texts(before) and leaked not in texts(before)
+
+    honest = at["jumps"] - 0.5                          # bar grown, not yet jumped
+    shown = texts(honest)
+    assert all(name in shown for name in VETTING)       # the six real names are on screen
+    assert f"{n['n_audit_removed']} removed" in shown and f"{n_kept} kept" in shown
+    assert f"model on {n_lc} dip + star measurements" in shown and audited in shown
+    assert "verdicts" not in shown.replace("NASA's verdicts", "")
+    top, colour = score_bar(draw, honest)
     assert top == pytest.approx(n["leak_lc_audited"])
     assert colour[:3] == pytest.approx(to_rgba(style.FG)[:3])
 
-    jumped = " ".join(" ".join(drawn_texts(draw, 0.86 * ctx.duration)).split())
+    # tiles and bar change state together: the six land as the score jumps
+    jumped = texts(at["Too good"] + 1.0)
     assert leaked in jumped and "too good to be true" in jumped.lower()
-    top, colour = score_bar(draw, 0.86 * ctx.duration)
+    assert f"+ {n_added} verdicts" in jumped and f"{n_lc} + {n_added} verdicts" in jumped
+    assert f"{n_kept + n_added} kept" not in jumped      # the counter never adds them in
+    top, colour = score_bar(draw, at["Too good"] + 1.0)
     assert top == pytest.approx(n["leak_lc_plus_vetting"])
     assert colour[:3] == pytest.approx(to_rgba(style.C_WARN)[:3])
 
     # end state: the six are out again and the bar is back at the audited score
-    end = drawn_texts(draw, ctx.duration - 0.01)
-    assert audited in " ".join(end) and leaked not in " ".join(end)
+    end = texts(ctx.duration - 0.01)
+    assert audited in end and leaked not in end and f"+ {n_added} verdicts" not in end
     top, colour = score_bar(draw, ctx.duration - 0.01)
     assert top == pytest.approx(n["leak_lc_audited"])
     assert colour[:3] == pytest.approx(to_rgba(style.FG)[:3])
+
+
+@needs_data
+def test_leakage_six_tiles_land_only_when_the_score_jumps():
+    """Tile positions: the six wait outside 'kept' until the jump, then sit in it."""
+    leak = scene_module("04_leakage")
+    ctx = make_ctx("04_leakage", width=960, height=540)
+    draw = leak.build(ctx)
+    t_jump = scenes.cue_fraction(ctx, "jumps", -1.0) * ctx.duration
+    kept_right = leak.KEPT_X0 + (leak.KEPT_COLS - 1) * leak.DX + 0.2
+    n_cols = len(ctx.load("audit_columns.json"))         # one tile per column
+
+    def warn_tiles_x(t):
+        from matplotlib.collections import PathCollection
+        from matplotlib.colors import to_rgb
+        fig = style.new_figure(960, 540)
+        draw(fig, t)
+        tiles = next(c for c in fig.findobj(PathCollection) if len(c.get_offsets()) == n_cols)
+        rgb = tiles.get_facecolors()[:, :3]
+        is_warn = np.abs(rgb - np.array(to_rgb(style.C_WARN))).sum(axis=1) < 0.05
+        return tiles.get_offsets()[is_warn, 0]
+
+    waiting = warn_tiles_x(t_jump - 1.0)
+    assert len(waiting) == 6 and np.all(waiting > kept_right)
+    landed = warn_tiles_x(t_jump + 2.0)
+    assert len(landed) == 6 and np.all(landed < kept_right)
 
 
 # --- 05_pipeline --------------------------------------------------------------------------

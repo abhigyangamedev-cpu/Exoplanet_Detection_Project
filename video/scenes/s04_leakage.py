@@ -1,9 +1,10 @@
 """Scene 4, the leakage audit: a model that copies the answer key.
 
 One tile per catalogue column (audit_columns.json) sorts into "kept" and "removed". The six
-vetting columns (NASA's own verdicts) are named. A score bar grows to the audited score;
-when the six slide back in it jumps, in the warning colour, to a too-good score; then they
-are removed again and the bar returns to the audited score.
+vetting columns (NASA's own verdicts) are named. When the score is introduced, a bar grows
+to the audited score of the light-curve-comparable model (its dip + star measurements). The
+six lift out of "removed" and wait; they land in "kept" as the bar jumps, in the warning
+colour, to a too-good score; then they are removed again and the bar returns.
 """
 
 from __future__ import annotations
@@ -18,11 +19,12 @@ from scenes import cue_fraction
 # layout in "inch" units of a 16 x 9 overlay axes
 DX = 0.42                          # tile spacing
 TILE_S = 23.0 ** 2                 # tile marker area, points^2 (about 0.32 in wide)
-GRID_COLS, GRID_X0 = 17, 3.9       # all columns, before the audit
+GRID_COLS, GRID_X0 = 17, 4.1       # all columns, before the audit
 TOP_Y = 6.6                        # top tile row
 KEPT_COLS, KEPT_X0 = 7, 0.9        # kept block; its last row has room for the six
 REMOVED_COLS, REMOVED_X0 = 10, 4.6
-NAMES_XY, NAMES_DY = (0.9, 3.15), 0.27
+HOVER_X = 4.02                     # the six wait in the gap between the blocks
+NAMES_XY, NAMES_DY = (0.9, 3.0), 0.27
 LABEL_Y = 7.05
 BAR_BOX = (0.665, 2.4 / 9, 0.12, 4.2 / 9)   # score axes, figure fractions
 TEXT_X = 12.85                               # explanation right of the bar
@@ -55,6 +57,8 @@ def build(ctx):
     rows = ctx.load("audit_columns.json")
     n = ctx.numbers
     audited, leaked = float(n["leak_lc_audited"]), float(n["leak_lc_plus_vetting"])
+    n_lc = int(n["leak_lc_n_features"])                      # the light-curve-comparable
+    n_added = int(n["leak_lc_plus_vetting_n_features"]) - n_lc   # model's inputs
     names = vetting_columns(rows)
     n_cols = len(rows)
     is_vet = np.array([r["column"] in VETTING for r in rows])
@@ -71,6 +75,8 @@ def build(ctx):
     sort[~kept] = removed_slots
     back_in = _slots(n_kept + len(names), KEPT_COLS, KEPT_X0)[n_kept:]
     vet_idx = np.flatnonzero(is_vet)
+    hover = np.column_stack([np.full(len(names), HOVER_X), TOP_Y - np.arange(len(names)) * DX])
+    draw_order = np.argsort(is_vet, kind="stable")           # the six on top
     delay = np.random.default_rng(4).uniform(0, 0.05, n_cols)
     appear = np.random.default_rng(5).uniform(0.01, 0.07, n_cols)
 
@@ -82,7 +88,6 @@ def build(ctx):
     f_cols = cue_fraction(ctx, "catalogue has", 0.11)
     f_verdict = cue_fraction(ctx, "verdicts", 0.2)
     f_answer = cue_fraction(ctx, "answer we want", 0.3)
-    f_removed = cue_fraction(ctx, "removed", 0.4)
     f_six = cue_fraction(ctx, "six verdict", 0.44)
     f_score = cue_fraction(ctx, "Our score", 0.5)
     f_ranks = cue_fraction(ctx, "ranks planets", 0.62)
@@ -90,7 +95,8 @@ def build(ctx):
     f_too = cue_fraction(ctx, "Too good", 0.8)
     f_model = cue_fraction(ctx, "The model was", 0.9)
     f_sort = f_answer                                        # tiles sort, done by "removed"
-    f_grow0, f_grow1 = f_sort + 0.03, max(f_removed, f_sort + 0.1)
+    f_grow0, f_grow1 = f_score, f_score + 0.06               # the bar appears with "score"
+    f_land = f_jump - 0.015                                  # the six land as the bar jumps
     f_copy = f_too + 0.04                                    # the warning's second line
     f_out = min(f_model + 0.015, 0.93)                       # the six leave again
     f_settle = f_out + 0.01                                  # bar returns
@@ -104,19 +110,27 @@ def build(ctx):
         ax.set_axis_off()
         style.heading(fig, "A safety check: the leakage audit")
 
-        _draw_tiles(ax, f)
+        _draw_tiles(ax, f, t)
         _draw_labels(ax, f)
-        if f >= f_grow0 - 0.02:
+        if f >= f_grow0:
             _draw_score(fig, ax, f)
 
-    def _draw_tiles(ax, f):
+    def _draw_tiles(ax, f, t):
         p_sort = _move(f, f_sort, delay)
         xy = grid + (sort - grid) * p_sort[:, None]
-        p_in = _move(f, f_six, delay[vet_idx] * 0.4)
-        p_out = _move(f, f_out, delay[vet_idx] * 0.1)
-        p_vet = p_in * (1 - p_out)
-        xy[vet_idx] = sort[vet_idx] + (back_in - sort[vet_idx]) * p_vet[:, None]
-        xy[vet_idx, 1] += 0.5 * np.sin(np.pi * p_vet) * (p_in < 1)   # arc over the blocks
+        # the six: lift out to wait between the blocks, land in "kept" as the score jumps,
+        # then go back to "removed"
+        steps = np.arange(len(names))
+        p_lift = _move(f, f_six, steps * 0.004)
+        p_land = _move(f, f_land, steps * 0.003)
+        p_out = _move(f, f_out, steps * 0.002)
+        bob = 0.04 * np.sin(2 * np.pi * 0.7 * t + steps) * p_lift * (1 - p_land)  # ambient
+        vet_xy = sort[vet_idx] + (hover - sort[vet_idx]) * p_lift[:, None]
+        vet_xy = vet_xy + (back_in - vet_xy) * p_land[:, None]
+        vet_xy = vet_xy + (sort[vet_idx] - vet_xy) * p_out[:, None]
+        vet_xy[:, 1] += bob
+        xy[vet_idx] = vet_xy
+        p_vet = np.maximum(p_lift, p_land) * (1 - p_out)
 
         rgb = np.where(kept[:, None], fg, fg + (muted - fg) * p_sort[:, None])
         alpha = 0.8 - np.where(kept, 0.0, 0.45 * p_sort)
@@ -124,13 +138,14 @@ def build(ctx):
         rgb[vet_idx] = rgb[vet_idx] + (warn - rgb[vet_idx]) * a_vet
         alpha[vet_idx] = 0.8 + 0.2 * a_vet - 0.4 * (p_sort[vet_idx] - p_vet)
         alpha = alpha * np.clip((f - appear) / 0.02, 0.0, 1.0)
-        ax.scatter(xy[:, 0], xy[:, 1], s=TILE_S, marker="s", linewidths=0,
-                   c=np.column_stack([rgb, alpha]))
+        rgba = np.column_stack([rgb, alpha])[draw_order]
+        ax.scatter(xy[draw_order, 0], xy[draw_order, 1], s=TILE_S, marker="s", linewidths=0,
+                   c=rgba)
 
         a_names = style.ease(style.progress(f, f_verdict, f_verdict + 0.04))
         if a_names > 0:
             x0, y0 = NAMES_XY
-            ax.text(x0 - 0.15, y0 + 0.45, "NASA's own verdicts:", ha="left", va="center",
+            ax.text(x0 - 0.15, y0 + 0.45, "NASA's verdicts:", ha="left", va="center",
                     size=style.LABEL_SIZE, color=style.C_WARN, alpha=a_names)
             for i, name in enumerate(names):
                 ax.text(x0, y0 - i * NAMES_DY, name, ha="left", va="center",
@@ -148,14 +163,17 @@ def build(ctx):
                     size=style.BODY_SIZE, color=style.MUTED, alpha=a_all)
         a_blocks = style.ease(style.progress(f, f_sort + 0.06, f_sort + 0.09))
         if a_blocks > 0:
-            n_in = n_kept + int(round(len(names) * style.progress(
-                f, f_six + 0.01, f_six + 0.05) * (1 - style.progress(f, f_out, f_out + 0.03))))
-            colour = style.C_WARN if n_in > n_kept else style.FG
             kx = KEPT_X0 + (KEPT_COLS - 1) * DX / 2
-            ax.text(kx - 0.1, LABEL_Y, f"{n_in}", ha="right", va="center",
-                    size=style.BODY_SIZE, weight="semibold", color=colour, alpha=a_blocks)
+            ax.text(kx - 0.1, LABEL_Y, f"{n_kept}", ha="right", va="center",
+                    size=style.BODY_SIZE, weight="semibold", color=style.FG, alpha=a_blocks)
             ax.text(kx, LABEL_Y, "kept", ha="left", va="center", size=style.BODY_SIZE,
                     color=style.FG, alpha=a_blocks)
+            a_plus = (style.ease(style.progress(f, f_land + 0.02, f_land + 0.04))
+                      * (1 - style.ease(style.progress(f, f_out, f_out + 0.02))))
+            if a_plus > 0:
+                ax.text(kx + 0.95, LABEL_Y, f"+ {len(names)} verdicts", ha="left",
+                        va="center", size=style.LABEL_SIZE, weight="semibold",
+                        color=style.C_WARN, alpha=a_plus)
             rx = REMOVED_X0 + (REMOVED_COLS - 1) * DX / 2
             ax.text(rx - 0.1, LABEL_Y, f"{n_removed}", ha="right", va="center",
                     size=style.BODY_SIZE, weight="semibold", color=style.MUTED,
@@ -164,9 +182,9 @@ def build(ctx):
                     color=style.MUTED, alpha=a_blocks)
 
     def _draw_score(fig, ax, f):
-        a = style.ease(style.progress(f, f_grow0 - 0.02, f_grow0 + 0.01))
+        a = style.ease(style.progress(f, f_grow0, f_grow0 + 0.02))
         grow = style.ease(style.progress(f, f_grow0, f_grow1))
-        jump = style.ease(style.progress(f, f_jump, f_jump + 0.025))
+        jump = style.ease(style.progress(f, f_jump, f_jump + 0.035))
         back = style.ease(style.progress(f, f_settle, f_settle + 0.025))
         p_warn = jump * (1 - back)
         value = lo + (audited - lo) * grow + (leaked - audited) * p_warn
@@ -201,11 +219,11 @@ def build(ctx):
         bax.text(0.5, value - 0.006, f"{value:.3f}", ha="center", va="top",
                  size=style.BODY_SIZE, weight="bold", color=style.BG,
                  alpha=a * (grow > 0.3))
-        which = (f"{n_kept} kept columns" if p_warn < 0.5
-                 else f"{n_kept} kept + {len(names)} verdicts")
+        which = (f"model on {n_lc} dip + star measurements" if p_warn < 0.5
+                 else f"{n_lc} + {n_added} verdicts")
         ax.text(x_axis + BAR_BOX[2] * 8, y_base - 0.7, which, ha="center", va="center",
-                size=style.LABEL_SIZE, color=style.C_WARN if p_warn >= 0.5 else style.FG,
-                alpha=a)
+                size=style.LABEL_SIZE - 2,
+                color=style.C_WARN if p_warn >= 0.5 else style.FG, alpha=a)
 
         a_expl = a * style.ease(style.progress(f, f_score, f_score + 0.03))
         ax.text(TEXT_X, 6.45, "1 = perfect", ha="left", va="center", size=style.LABEL_SIZE,

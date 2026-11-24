@@ -45,6 +45,11 @@ def test_numbers_match_project_files(numbers):
     assert n["n_audit_columns"] == 153
     assert 0 < n["n_audit_removed"] < n["n_audit_columns"]
     assert 0.9 < n["leak_lc_audited"] < n["leak_lc_plus_vetting"] <= 1.0
+    # the light-curve-comparable model's inputs, before and after the six vetting columns
+    assert isinstance(n["leak_lc_n_features"], int) and n["leak_lc_n_features"] > 0
+    assert n["leak_lc_plus_vetting_n_features"] == n["leak_lc_n_features"] + 6
+    assert n["sources"]["leak_lc_n_features"].endswith("leakage_inflation.md")
+    assert n["sources"]["leak_lc_plus_vetting_n_features"].endswith("leakage_inflation.md")
     assert set(n["test_pr_auc"]) == {"tabular", "tabular_lc", "tabular_lc_sub", "cnn"}
     assert set(n["dev_full_pr_auc"]) == {"tabular_lc", "cnn_full"}
     assert 0 < n["n_views_built"] <= n["n_kois"]

@@ -137,12 +137,12 @@ def extract_numbers(config: dict[str, Any]) -> dict[str, Any]:
 
     leak = f"{OUTPUTS}/leakage_inflation.md"
     feature_sets = _table_with(leak, "feature_set")
-    put("leak_lc_audited", float(_row(feature_sets, "feature_set", "audited_lc")["pr_auc"]), leak)
-    put(
-        "leak_lc_plus_vetting",
-        float(_row(feature_sets, "feature_set", "audited_lc_plus_vetting")["pr_auc"]),
-        leak,
-    )
+    lc = _row(feature_sets, "feature_set", "audited_lc")
+    lc_vet = _row(feature_sets, "feature_set", "audited_lc_plus_vetting")
+    put("leak_lc_audited", float(lc["pr_auc"]), leak)
+    put("leak_lc_plus_vetting", float(lc_vet["pr_auc"]), leak)
+    put("leak_lc_n_features", int(lc["features"]), leak)
+    put("leak_lc_plus_vetting_n_features", int(lc_vet["features"]), leak)
 
     for key, rel in (
         ("test_pr_auc", f"{OUTPUTS}/evaluation_test.json"),

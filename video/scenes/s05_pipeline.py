@@ -101,6 +101,8 @@ def build(ctx):
     phase = s["phase"][sub]
     orbit = orbit_all[sub]
     n_orbits = int(orbit.max()) + 1
+    # one point per orbit, to count the orbits that have landed (orbit 0 never moves)
+    orbit_first = np.unique(orbit, return_index=True)[1][1:]
     quarter = s["quarter_index"][idx]
     close = orbit <= N_SLIDE                                 # drawn bigger when zoomed in
     in_transit = np.abs(phase) < s["duration_hours"] / 48.0
@@ -309,7 +311,7 @@ def build(ctx):
         a_count = (style.ease(style.progress(f, slide0, slide0 + 0.02))
                    * (1 - style.ease(style.progress(f, f_two - 0.02, f_two))))
         if a_count > 0:
-            stacked = 1 + int((p_fold.reshape(-1)[_orbit_first] >= 1).sum())
+            stacked = 1 + int((p_fold[orbit_first] >= 1).sum())
             ax.text(0.98, 0.94, f"orbits stacked: {stacked} of {n_orbits}",
                     transform=ax.transAxes, ha="right", va="center", size=style.LABEL_SIZE,
                     color=style.FG, alpha=a_count)
@@ -381,8 +383,5 @@ def build(ctx):
                     transform=ax.transAxes, ha="center", va="center", linespacing=1.15,
                     size=style.BODY_SIZE, weight="semibold",
                     color=colour, alpha=a * style.ease(style.progress(f, f_on, f_on + 0.02)))
-
-    # one point per orbit, to count the orbits that have landed (orbit 0 never moves)
-    _orbit_first = np.unique(orbit, return_index=True)[1][1:]
     return draw
 
