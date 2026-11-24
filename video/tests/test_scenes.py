@@ -176,3 +176,102 @@ def test_data_shows_real_split_counts():
     texts = " ".join(drawn_texts(scene_module("03_data").build(ctx), ctx.duration - 0.01))
     assert f"{ctx.numbers['n_test']:,}" in texts
     assert f"{ctx.numbers['n_dev']:,}" in texts
+
+
+# --- 04_leakage ---------------------------------------------------------------------------
+
+VETTING = {"koi_score", "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec",
+           "koi_pdisposition"}
+
+
+def score_bar(draw, t: float):
+    """(top of the score bar in score units, its face colour) at t."""
+    fig = style.new_figure(960, 540)
+    draw(fig, t)
+    bar = next(p for p in fig.findobj(lambda a: a.get_gid() == "score_bar"))
+    return bar.get_y() + bar.get_height(), bar.get_facecolor()
+
+
+@needs_data
+def test_leakage_finds_the_six_vetting_columns_in_the_audit():
+    leak = scene_module("04_leakage")
+    rows = make_ctx("04_leakage", width=960, height=540).load("audit_columns.json")
+    assert set(leak.vetting_columns(rows)) == VETTING
+    assert not any(r["kept"] for r in rows if r["column"] in VETTING)
+
+
+@needs_data
+def test_leakage_shows_counts_names_and_the_jump():
+    from matplotlib.colors import to_rgba
+    ctx = make_ctx("04_leakage", width=960, height=540)
+    draw = scene_module("04_leakage").build(ctx)
+    n = ctx.numbers
+    audited, leaked = f"{n['leak_lc_audited']:.3f}", f"{n['leak_lc_plus_vetting']:.3f}"
+    n_kept = n["n_audit_columns"] - n["n_audit_removed"]
+
+    early = " ".join(drawn_texts(draw, 0.05 * ctx.duration))
+    assert leaked not in early and audited not in early
+
+    sorted_ = drawn_texts(draw, 0.6 * ctx.duration)
+    assert VETTING <= set(sorted_)                       # the six real names are on screen
+    assert str(n["n_audit_removed"]) in sorted_
+    assert f"{n_kept} kept columns" in sorted_           # what the audited score was trained on
+    top, colour = score_bar(draw, 0.6 * ctx.duration)
+    assert top == pytest.approx(n["leak_lc_audited"])
+    assert colour[:3] == pytest.approx(to_rgba(style.FG)[:3])
+
+    jumped = " ".join(" ".join(drawn_texts(draw, 0.86 * ctx.duration)).split())
+    assert leaked in jumped and "too good to be true" in jumped.lower()
+    top, colour = score_bar(draw, 0.86 * ctx.duration)
+    assert top == pytest.approx(n["leak_lc_plus_vetting"])
+    assert colour[:3] == pytest.approx(to_rgba(style.C_WARN)[:3])
+
+    # end state: the six are out again and the bar is back at the audited score
+    end = drawn_texts(draw, ctx.duration - 0.01)
+    assert audited in " ".join(end) and leaked not in " ".join(end)
+    top, colour = score_bar(draw, ctx.duration - 0.01)
+    assert top == pytest.approx(n["leak_lc_audited"])
+    assert colour[:3] == pytest.approx(to_rgba(style.FG)[:3])
+
+
+# --- 05_pipeline --------------------------------------------------------------------------
+
+STAGES = ["raw brightness, in three-month pieces", "stitched", "slow changes removed",
+          "folded on the orbit", "two pictures for the network"]
+
+
+def test_pipeline_fold_moves_points_from_time_to_phase():
+    pipe = scene_module("05_pipeline")
+    period = 4.0
+    phase = np.array([-1.0, 0.0, 0.5, 1.9])
+    orbit = np.array([0, 1, 2, 30])
+    x_time = phase + orbit * period
+    assert np.allclose(pipe.fold_x(phase, orbit, period, np.zeros(4)), x_time)
+    assert np.allclose(pipe.fold_x(phase, orbit, period, np.ones(4)), phase)
+    half = pipe.fold_x(phase, orbit, period, np.full(4, 0.5))
+    assert np.all((half >= phase) & (half <= x_time))
+
+
+@needs_data
+def test_pipeline_labels_each_stage_in_order():
+    ctx = make_ctx("05_pipeline", width=960, height=540)
+    draw = scene_module("05_pipeline").build(ctx)
+    first_seen = {}
+    for frac in np.linspace(0.0, 0.999, 60):
+        text = " ".join(drawn_texts(draw, frac * ctx.duration)).lower()
+        for stage in STAGES:
+            if stage in text:
+                first_seen.setdefault(stage, frac)
+    assert list(first_seen) == STAGES                   # every stage shown, in order
+    assert sorted(first_seen.values()) == list(first_seen.values())
+
+
+@needs_data
+def test_pipeline_shows_view_counts_and_the_comparison():
+    ctx = make_ctx("05_pipeline", width=960, height=540)
+    draw = scene_module("05_pipeline").build(ctx)
+    n = ctx.numbers
+    counts = " ".join(drawn_texts(draw, 0.72 * ctx.duration))
+    assert f"{n['n_views_built']:,}" in counts and f"{n['n_kois']:,}" in counts
+    end = " ".join(" ".join(drawn_texts(draw, 0.985 * ctx.duration)).split()).lower()
+    assert "shallow, rounded dip" in end and "deep, sharp v" in end

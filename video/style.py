@@ -32,6 +32,7 @@ MUTED = "#8b93ab"      # axes, secondary text
 C_PLANET = "#46c2f0"   # confirmed planet (sky blue)
 C_FALSE = "#ff8a3d"    # false positive (orange); blue/orange is colour-blind safe
 C_ACCENT = "#ffd166"   # highlights, commands, the one thing to look at
+C_WARN = "#ff4f6d"     # warnings only (the leaked score); never a class colour
 TERM_BG = "#0e1424"    # terminal window body
 
 
