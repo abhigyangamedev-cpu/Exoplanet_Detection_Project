@@ -584,6 +584,41 @@ def test_integration_steps_light_up_in_narrated_order():
     assert first_lit["fetch"] > 0.05                     # not lit before it is named
 
 
+def test_terminal_default_title_and_no_cursor_option():
+    import inspect
+    assert inspect.signature(style.terminal).parameters["title"].default == "terminal"
+    fig = style.new_figure(960, 540)
+    term = fig.add_axes((0.1, 0.3, 0.8, 0.6))
+    style.terminal(term, ["> run", "out"], chars_shown=4, cursor=False)
+    assert not any("█" in t.get_text() for t in term.texts)
+    term2 = fig.add_axes((0.1, 0.3, 0.8, 0.6))
+    style.terminal(term2, ["> run", "out"], chars_shown=4)
+    assert any("█" in t.get_text() for t in term2.texts)
+
+
+@needs_data
+def test_integration_windows_say_what_they_are():
+    """The first window is a replay of real output; saved logs show their command whole at
+    once, with no cursor; no window is called PowerShell."""
+    integ = scene_module("07_integration")
+    ctx = make_ctx("07_integration", width=960, height=540)
+    draw = integ.build(ctx)
+    t_build = scenes.cue_fraction(ctx, "Building the views", -1.0) * ctx.duration
+    t_train = scenes.cue_fraction(ctx, "Training", -1.0) * ctx.duration
+    assert t_build > 0 and t_train > t_build
+    early = drawn_texts(draw, 0.2 * ctx.duration)
+    assert "terminal — real output, replayed" in early
+    for frac in np.linspace(0.0, 0.999, 40):
+        assert not any("PowerShell" in s for s in drawn_texts(draw, frac * ctx.duration))
+    for t0, cmd, log in ((t_build, integ.CMD_BUILD, integ.LOG_BUILD),
+                         (t_train, integ.CMD_TRAIN, integ.LOG_TRAIN)):
+        for dt in (0.05, 0.5, 1.5):
+            texts = drawn_texts(draw, t0 + dt)
+            assert f"saved log: {log}" in texts
+            assert "> " + cmd in texts, (cmd, dt)                # whole from the start
+            assert not any("█" in s for s in texts)              # no cursor
+
+
 def assert_summary_called_out(texts: list[str], pytest_lines: list[str], summary: str):
     """The terminal shows pytest's raw last line; the call-out shows the summary. Runs over a
     minute end the raw line with the wall time again (" (0:02:01)"), which the call-out drops;

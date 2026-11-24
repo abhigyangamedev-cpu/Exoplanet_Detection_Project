@@ -4,8 +4,9 @@ A row of seven steps (with their real script names in scripts/) lights up as the
 lists them. Below, a terminal replays captured output (video/build/data/terminal/, written by
 video/extract_data.py): the leakage audit and the report are typed into one session, then the
 test suite, whose real summary line is called out beside the terminal while a check appears
-on every step. The two long jobs are shown from their saved logs (the window title names the
-log): the tail of the view build, captioned "several hours, resumable", and the training log,
+on every step. The first window is titled as a replay of real output. The two long jobs are
+shown from their saved logs (the window title names the log; the command appears whole, with
+no typing and no cursor): the tail of the view build, captioned "several hours, resumable", and the training log,
 captioned with the training time and the document it is quoted from.
 
 Commands are shown exactly as they were run: the fast ones as video/extract_data.py runs them
@@ -45,6 +46,7 @@ CMD_TRAIN = "python scripts/train_cnn.py --name cnn_full"    # docs/evaluation.m
 LOG_BUILD = "outputs/build_views_full_dev_resume4.log"       # read by extract_data.py
 LOG_TRAIN = "outputs/train_cnn_full.log"
 PROMPT = "> "
+LIVE_TITLE = "terminal — real output, replayed"               # captured, not a live shell
 
 # layout: inches of the 16 x 9 overlay axes
 ROW_X = (0.5, 15.5)
@@ -98,6 +100,12 @@ def _command(f_show, f_type0, command):
     return (f_show, f_type0, f_type0 + TYPE_F * len(line), line)
 
 
+def _logged(f_show, command):
+    """A command read from a saved log: it appears whole at f_show, nothing is typed."""
+    line = fit_line(PROMPT + command)
+    return (f_show, f_show, f_show, line)
+
+
 def _outputs(lines, f0, f1):
     fs = np.linspace(f0, f1, len(lines)) if len(lines) > 1 else [f0]
     return [(float(f), float(f), float(f), line) for f, line in zip(fs, lines, strict=True)]
@@ -147,12 +155,14 @@ def build(ctx):
     idle = (f_passed + 0.006, 2.0, 3.0, PROMPT)                 # waits, cursor blinking on
     live = [cmd_audit, *out_audit, cmd_report, *out_report, cmd_tests, *out_tests, idle]
     # sessions 2 and 3: the long jobs, from their saved logs
-    cmd_build = _command(f_build, f_build + 0.005, CMD_BUILD)
+    # a saved log is not a live run: its command is shown whole (no typing, no cursor)
+    cmd_build = _logged(f_build, CMD_BUILD)
     builds = [cmd_build, *_outputs(build_tail, cmd_build[2] + 0.01, f_train - 0.03)]
-    cmd_train = _command(f_train, f_train + 0.005, CMD_TRAIN)
+    cmd_train = _logged(f_train, CMD_TRAIN)
     trains = [cmd_train, *_outputs(train_log, cmd_train[2] + 0.01, min(f_took, 0.95))]
-    sessions = ((0.0, "PowerShell", live), (f_build, f"saved log: {LOG_BUILD}", builds),
-                (f_train, f"saved log: {LOG_TRAIN}", trains))
+    sessions = ((0.0, LIVE_TITLE, live, True),
+                (f_build, f"saved log: {LOG_BUILD}", builds, False),
+                (f_train, f"saved log: {LOG_TRAIN}", trains, False))
     # which step's output the terminal shows
     active = ((cmd_audit[1], 1), (cmd_report[1], 6), (cmd_tests[1], None), (f_build, 3),
               (f_train, 4))
@@ -217,11 +227,11 @@ def build(ctx):
                         color=style.C_ACCENT, lw=2.6, alpha=a_tick)
 
     def _draw_terminal(fig, f):
-        start, title, segments = next(s for s in reversed(sessions) if f >= s[0])
+        start, title, segments, cursor = next(s for s in reversed(sessions) if f >= s[0])
         x, y, w, h = TERM_BOX
         tax = fig.add_axes((x / 16, y / 9, w / 16, h / 9))
         lines, chars = session_state(segments, f)
-        style.terminal(tax, lines, chars, title=title, fontsize=TERM_PT)
+        style.terminal(tax, lines, chars, title=title, fontsize=TERM_PT, cursor=cursor)
 
     def _draw_notes(ax, f):
         a = a_at(f, f_passed)

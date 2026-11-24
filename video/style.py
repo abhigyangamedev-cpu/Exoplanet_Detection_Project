@@ -194,9 +194,12 @@ def starfield(ax, seed: int, t: float) -> None:
 _COMMAND_PREFIXES = ("$ ", "> ", "PS ")
 
 
-def terminal(ax, lines: list[str], chars_shown: int, *, title: str = "PowerShell",
-             fontsize: float = TERM_SIZE) -> None:
+def terminal(ax, lines: list[str], chars_shown: int, *, title: str = "terminal",
+             fontsize: float = TERM_SIZE, cursor: bool = True) -> None:
     """Draw a terminal window filling ax, with the first chars_shown characters typed.
+
+    title: the window title; say what the window is (a replay, a saved log), never a live
+    shell's name. cursor=False draws no block cursor (a saved log, not a live session).
 
     Each line counts its length plus one (the newline). Lines starting with "$ ", "> " or
     "PS " are commands and drawn in C_ACCENT. When the typed text is taller than the window,
@@ -231,7 +234,7 @@ def terminal(ax, lines: list[str], chars_shown: int, *, title: str = "PowerShell
     done = budget > 0
     if not typed:
         typed = [""]
-    if not done:
+    if cursor and not done:
         typed[-1] += "█"  # block cursor while typing
 
     n_fit = max(int((1 - bar - line_h * 0.5) // line_h), 1)
