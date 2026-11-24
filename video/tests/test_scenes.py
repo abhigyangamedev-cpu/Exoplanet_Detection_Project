@@ -318,3 +318,201 @@ def test_pipeline_shows_view_counts_and_the_comparison():
     assert f"{n['n_views_built']:,}" in counts and f"{n['n_kois']:,}" in counts
     end = " ".join(" ".join(drawn_texts(draw, 0.985 * ctx.duration)).split()).lower()
     assert "shallow, rounded dip" in end and "deep, sharp v" in end
+
+
+# --- 06_models ----------------------------------------------------------------------------
+
+def drawn_text_alpha(draw, t: float, width: int = 960, height: int = 540) -> dict[str, float]:
+    """Each on-screen text string and its alpha (1 when unset) at t."""
+    fig = style.new_figure(width, height)
+    draw(fig, t)
+    out = {}
+    for a in fig.findobj(Text):
+        if a.get_visible() and a.get_text():
+            alpha = a.get_alpha()
+            out[a.get_text()] = max(out.get(a.get_text(), 0.0), 1.0 if alpha is None else alpha)
+    return out
+
+
+def shown(draw, t: float) -> set[str]:
+    """Texts visible at t (alpha above a half)."""
+    return {s for s, a in drawn_text_alpha(draw, t).items() if a > 0.5}
+
+
+def test_models_polyline_point_walks_by_arc_length():
+    models = scene_module("06_models")
+    path = np.array([[0.0, 0.0], [3.0, 0.0], [3.0, 1.0]])           # length 4
+    pts = models.polyline_point(path, np.array([0.0, 0.5, 0.75, 1.0]))
+    assert np.allclose(pts, [[0, 0], [2, 0], [3, 0], [3, 1]])
+
+
+@needs_data
+def test_models_feed_the_real_views_into_the_network():
+    from matplotlib.lines import Line2D
+    ctx = make_ctx("06_models", width=960, height=540)
+    draw = scene_module("06_models").build(ctx)
+    star = ctx.load("star_planet.npz")
+    fig = style.new_figure(960, 540)
+    draw(fig, 0.99 * ctx.duration)
+    lines = [ln for ln in fig.findobj(Line2D) if len(ln.get_ydata()) > 100]
+    for key in ("global_view", "local_view"):
+        view = star[key]
+        match = [ln for ln in lines if len(ln.get_ydata()) == len(view)]
+        assert len(match) == 1, key
+        # the thumbnail is the view itself, only shifted and scaled
+        assert np.corrcoef(match[0].get_ydata(), view)[0, 1] > 0.9999
+
+
+@needs_data
+def test_models_parts_appear_as_narrated_without_a_score_value():
+    ctx = make_ctx("06_models", width=960, height=540)
+    draw = scene_module("06_models").build(ctx)
+    at = {p: scenes.cue_fraction(ctx, p, -1.0) * ctx.duration
+          for p in ("A neural network", "zero to one", "A team", "each fixing",
+                    "depth and length", "the star itself", "image shifts")}
+    assert all(t >= 0 for t in at.values())             # the cues exist in the narration
+
+    early = shown(draw, at["A neural network"] - 0.3)
+    assert "Neural network" not in early and "Decision trees" not in early
+    network = shown(draw, at["A team"] - 0.3)
+    assert {"Neural network", "whole orbit", "close-up of the transit", "global view",
+            "local view", "merged", "dense layers", "score", "0", "1"} <= network
+    assert "Decision trees" not in network
+    trees = shown(draw, at["each fixing"] + 0.8)
+    assert {"Decision trees", "each fixes the last one's mistakes"} <= trees
+    assert "the star itself" not in trees
+
+    groups = [("the dip: depth, length, ...", "transit", "depth and length"),
+              ("the star itself", "stellar", "the star itself"),
+              ("image shift during the dip", "centroid", "image shifts")]
+    for plain, term, phrase in groups:
+        assert plain not in shown(draw, at[phrase] - 0.6), plain
+        assert {plain, term} <= shown(draw, at[phrase] + 0.6), plain
+
+    # a bare 0-1 scale: no model score for this star anywhere in the scene
+    for frac in np.linspace(0.0, 0.999, 12):
+        assert not any(re.search(r"\d\.\d", s) for s in drawn_texts(draw, frac * ctx.duration))
+
+
+# --- 07_integration -----------------------------------------------------------------------
+
+def extract_data_commands() -> dict[str, str]:
+    """The fast commands video/extract_data.py runs (capture_terminal), as shown on screen."""
+    import ast
+    tree = ast.parse((engine.VIDEO_DIR / "extract_data.py").read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "capture_terminal")
+    table = next(n.value for n in ast.walk(fn) if isinstance(n, ast.Assign)
+                 and getattr(n.targets[0], "id", "") == "commands")
+
+    def arg(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+        parts = []
+        for v in node.values:                            # f"{build}/name.md"
+            if isinstance(v, ast.Constant):
+                parts.append(v.value)
+            else:
+                assert v.value.id == "build"
+                parts.append("video/build")
+        return "".join(parts)
+
+    return {k.value: "python " + " ".join(arg(e) for e in v.elts)
+            for k, v in zip(table.keys, table.values, strict=True)}
+
+
+def test_integration_commands_are_the_ones_that_were_run():
+    integ = scene_module("07_integration")
+    commands = extract_data_commands()
+    assert integ.CMD_AUDIT == commands["audit_leakage"]
+    assert integ.CMD_REPORT == commands["make_report"]
+    assert integ.CMD_PYTEST == commands["pytest"]
+    source = (engine.VIDEO_DIR / "extract_data.py").read_text(encoding="utf-8")
+    for log in (integ.LOG_BUILD, integ.LOG_TRAIN):
+        assert Path(log).name in source                  # the logs the captures copy
+    docs = (engine.REPO_ROOT / "docs" / "evaluation.md").read_text(encoding="utf-8")
+    assert f"`{integ.CMD_BUILD}`" in docs and f"`{integ.CMD_TRAIN}`" in docs
+    scripts_dir = engine.REPO_ROOT / "scripts"
+    for _, names, _ in integ.STEPS:
+        assert all((scripts_dir / name).exists() for name in names)
+
+
+def test_integration_fit_line_cuts_only_long_lines_at_the_end():
+    integ = scene_module("07_integration")
+    assert integ.fit_line("abc", 5) == "abc"
+    assert integ.fit_line("abcde", 5) == "abcde"
+    assert integ.fit_line("abcdefgh", 5) == "abcd…"
+
+
+def test_integration_terminal_window_fits_the_widest_line():
+    integ = scene_module("07_integration")
+    models = scene_module("06_models")
+    pad = 2 * integ.TERM_PT / 72                         # style.terminal: one em each side
+    assert models.text_width("m" * integ.MAX_CHARS, integ.TERM_PT, mono=True) + pad \
+        < integ.TERM_BOX[2]
+
+
+def test_integration_session_types_commands_then_prints_output():
+    integ = scene_module("07_integration")
+    segs = [(0.0, 0.2, 0.4, "> abcd"), (0.5, 0.5, 0.5, "out"), (0.6, 0.7, 0.8, "> xy")]
+    assert integ.session_state(segs, 0.1) == (["> abcd"], 2)        # prompt waits
+    assert integ.session_state(segs, 0.3) == (["> abcd"], 4)        # half typed
+    assert integ.session_state(segs, 0.45) == (["> abcd"], 6)
+    assert integ.session_state(segs, 0.55) == (["> abcd", "out"], 7 + 3)
+    # all typed: two extra characters, so the finished session draws no cursor
+    assert integ.session_state(segs, 0.9) == (["> abcd", "out", "> xy"], 7 + 4 + 4 + 2)
+    idle = [*segs, (0.85, 2.0, 3.0, "> ")]                          # an idle prompt
+    assert integ.session_state(idle, 0.9) == (["> abcd", "out", "> xy", "> "], 7 + 4 + 5 + 2)
+
+
+@needs_data
+def test_integration_steps_light_up_in_narrated_order():
+    integ = scene_module("07_integration")
+    ctx = make_ctx("07_integration", width=960, height=540)
+    draw = integ.build(ctx)
+    labels = [label for label, _, _ in integ.STEPS]
+    first_lit = {}
+    for frac in np.linspace(0.0, 0.5, 70):
+        alphas = drawn_text_alpha(draw, frac * ctx.duration)
+        for label in labels:
+            if alphas[label] > 0.9:
+                first_lit.setdefault(label, frac)
+    assert list(first_lit) == labels
+    assert sorted(first_lit.values()) == list(first_lit.values())
+    assert first_lit["fetch"] > 0.05                     # not lit before it is named
+
+
+@needs_data
+def test_integration_replays_the_real_captures_with_their_captions():
+    integ = scene_module("07_integration")
+    ctx = make_ctx("07_integration", width=960, height=540)
+    draw = integ.build(ctx)
+    terminal = ctx.data_dir / "terminal"
+
+    def capture(name):
+        return (terminal / f"{name}.txt").read_text(encoding="utf-8").splitlines()
+
+    def at(phrase):
+        t = scenes.cue_fraction(ctx, phrase, -1.0) * ctx.duration
+        assert t >= 0, phrase
+        return t
+
+    tests = drawn_texts(draw, at("Building the views") - 0.3)
+    summary = integ.summary_line(capture("pytest"))
+    assert re.fullmatch(r"\d+ passed in [\d.]+s", summary)
+    assert tests.count(summary) == 2                     # in the terminal and called out
+    assert "> " + integ.CMD_PYTEST in tests
+    assert all(line in tests for line in capture("make_report"))
+
+    built = drawn_texts(draw, at("Training") - 0.2)
+    assert capture("build_views_tail")[-1] in built
+    assert "several hours,\nresumable" in built
+    assert any(integ.LOG_BUILD in s for s in built)      # the window names the log
+
+    end = drawn_texts(draw, ctx.duration - 0.01)
+    log = capture("train_cnn_full")
+    assert all(line in end for line in log[-10:])        # the whole fold table fits
+    assert ctx.numbers["cnn_full_train_time_text"] in end
+    assert f"source: {ctx.numbers['sources']['cnn_full_train_time_text']}" in end
+    assert any(integ.LOG_TRAIN in s for s in end)
+    assert ctx.numbers["cnn_full_train_time_text"] not in drawn_texts(draw, at("Training"))
