@@ -1,0 +1,9 @@
+# Video tooling, installed into C:\video_env (never into the project .venv):
+#   py -3.12 -m venv C:\video_env
+#   C:\video_env\Scripts\python -m pip install -r video/requirements.txt
+numpy>=1.26,<3
+matplotlib>=3.8
+imageio-ffmpeg>=0.5
+edge-tts>=6.1
+pytest>=8.0
+pillow>=10.0
