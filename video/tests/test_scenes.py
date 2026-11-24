@@ -720,3 +720,146 @@ def test_meaning_next_steps_appear_as_spoken_and_no_score_is_shown():
         assert set(steps[: i + 1]) <= shown(draw, at[phrase] + 0.8), phrase
     for frac in np.linspace(0.0, 0.999, 15):                # the dial is a bare 0-1 scale
         assert not any(re.search(r"\d\.\d", s) for s in drawn_texts(draw, frac * ctx.duration))
+
+
+# --- 10_end -------------------------------------------------------------------------------
+
+def mean_abs_diff(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.abs(a.astype(int) - b.astype(int)).mean())
+
+
+@needs_data
+def test_loop_seam():
+    ctx10 = make_ctx("10_end", width=960, height=540)
+    ctx01 = make_ctx("01_hook", width=960, height=540)
+    last = render(scene_module("10_end").build(ctx10), ctx10.duration - 1e-3)
+    first = render(scene_module("01_hook").build(ctx01), 0.0)
+    assert np.abs(last.astype(int) - first.astype(int)).mean() < 2.0
+
+
+@needs_data
+@pytest.mark.parametrize("draft", [True, False], ids=["draft", "full"])
+def test_loop_seam_at_the_last_rendered_frame(draft):
+    """The clip's real last frame (t = (n - 1) / fps, caption logic applied) is scene 1's
+    first frame, so the cut from the end card back to the opening is invisible."""
+    ctx10 = make_ctx("10_end", draft=draft)
+    ctx01 = make_ctx("01_hook", draft=draft)
+    t_last = float(engine.frame_times(ctx10)[-1])
+    assert t_last < ctx10.duration
+    cap10, cap01 = engine.caption_at(ctx10.cues, t_last), engine.caption_at(ctx01.cues, 0.0)
+    assert cap10 is None and cap01 is None              # no caption on either side of the cut
+    last = engine.render_frame(scene_module("10_end").build(ctx10), t_last, ctx10.width,
+                               ctx10.height, caption=cap10)
+    first = engine.render_frame(scene_module("01_hook").build(ctx01), 0.0, ctx01.width,
+                                ctx01.height, caption=cap01)
+    assert last.shape == first.shape == (ctx10.height, ctx10.width, 4)
+    assert mean_abs_diff(last, first) < 2.0
+    # and not trivially: the card itself is on screen before the fade
+    mid = engine.render_frame(scene_module("10_end").build(ctx10), 0.5 * ctx10.duration,
+                              ctx10.width, ctx10.height)
+    assert mean_abs_diff(mid, first) > 2.0
+
+
+def test_end_tools_are_real_dependencies():
+    import tomllib
+    end = scene_module("10_end")
+    project = tomllib.loads((engine.REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    deps = {re.split(r"[<>=!~ \[]", d)[0].lower() for d in project["project"]["dependencies"]}
+    assert end.TOOLS[0] == ("Python", None)              # the language, not a package
+    for label, package in end.TOOLS[1:]:
+        assert package in deps, label
+    assert [label for label, _ in end.TOOLS] == ["Python", "NumPy", "pandas", "scikit-learn",
+                                                 "PyTorch", "lightkurve", "matplotlib"]
+
+
+FULL_CREDITS = {"title": "Kepler Exoplanet Transit Detection",
+                "name": "Aaaaaaaaaaaa Bbbbbbbbbbbbbbbbb",                 # 30 characters
+                "team": ["Cccccccccc Dddddddddddddddddd", "Eeeeeeeeeeeee Fffffffffffffff",
+                         "Gggggggg Hhhhhhhhhhhhhhhhhhhhh", "Iiiiiiiiiiiiiii Jjjjjjjjjjjjj"],
+                "institution": "Department of Physics and Astronomy, Kkkkkkkkkkk University "
+                               "of Technology",                           # ~85 characters
+                "guide": "Prof. Llllllll Mmmmmmmmmmmmmm", "voice": "en-IN-NeerjaNeural"}
+
+
+def end_frame_texts(credits: dict, width: int = 960, height: int = 540):
+    """(fig, renderer, visible texts) of the end card with these credits, all of it shown."""
+    ctx = make_ctx("10_end", width=width, height=height)
+    ctx.credits = credits
+    draw = scene_module("10_end").build(ctx)
+    t = scenes.cue_fraction(ctx, "Thank you", -1.0) * ctx.duration
+    assert t > 0
+    fig = style.new_figure(width, height)
+    draw(fig, t + 0.3)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    texts = [a for a in fig.findobj(Text) if a.get_visible() and a.get_text()]
+    return fig, renderer, texts
+
+
+def assert_fits_and_no_overlap(fig, renderer, texts):
+    width, height = fig.bbox.width, fig.bbox.height
+    band = style.CAPTION_BAND * height
+    boxes = []
+    for a in texts:
+        bb = a.get_window_extent(renderer)
+        patch = a.get_bbox_patch()
+        if patch is not None:
+            bb = patch.get_window_extent(renderer)
+        assert bb.x0 >= 0 and bb.x1 <= width and bb.y1 <= height, a.get_text()
+        assert bb.y0 >= band, f"{a.get_text()!r} enters the caption band"
+        boxes.append((a.get_text(), bb))
+    for i, (ta, a) in enumerate(boxes):
+        for tb, b in boxes[i + 1:]:
+            assert not a.overlaps(b), (ta, tb)
+
+
+@needs_data
+@pytest.mark.parametrize("width,height", [(960, 540), (1920, 1080)])
+def test_end_shows_every_credit_and_fits(width, height):
+    fig, renderer, texts = end_frame_texts(FULL_CREDITS, width, height)
+    strings = [a.get_text() for a in texts]
+    joined = " ".join(" ".join(strings).split())
+    assert FULL_CREDITS["title"] in strings
+    assert FULL_CREDITS["name"] in strings
+    assert all(member in joined for member in FULL_CREDITS["team"])        # team of four
+    assert FULL_CREDITS["institution"] in joined
+    inst = next(s for s in strings if s.startswith("Department"))
+    assert inst.count("\n") == 1                                           # wraps to two lines
+    assert f"Guide: {FULL_CREDITS['guide']}" in strings
+    for tool in ("Python", "NumPy", "pandas", "scikit-learn", "PyTorch", "lightkurve",
+                 "matplotlib"):
+        assert tool in strings
+    assert "Data: NASA Kepler mission, NASA Exoplanet Archive, MAST" in strings
+    assert_fits_and_no_overlap(fig, renderer, texts)
+
+
+@needs_data
+def test_end_renders_the_placeholder_credits():
+    ctx = make_ctx("10_end", width=960, height=540)
+    _, _, texts = end_frame_texts(ctx.credits)
+    strings = [a.get_text() for a in texts]
+    assert ctx.credits["title"] in strings and ctx.credits["name"] in strings
+
+
+@needs_data
+def test_end_omits_empty_fields_without_a_gap():
+    sparse = {**FULL_CREDITS, "team": [], "guide": "", "institution": ""}
+    fig, renderer, texts = end_frame_texts(sparse)
+    strings = [a.get_text() for a in texts]
+    assert FULL_CREDITS["name"] in strings
+    assert not any(s.strip() in ("", "with", "Guide:", "Team:") for s in strings)
+    assert not any("Guide" in s or "with" == s.split()[0] for s in strings)
+    assert not any(m in " ".join(strings) for m in FULL_CREDITS["team"])
+    assert_fits_and_no_overlap(fig, renderer, texts)
+
+    # only the guide present: it sits right under the name, the same gap as any other line
+    def gap_below_name(credits):
+        fig, renderer, texts = end_frame_texts(credits)
+        by_text = {a.get_text(): a.get_window_extent(renderer) for a in texts}
+        name = by_text[credits["name"]]
+        below = [bb for s, bb in by_text.items() if bb.y1 < name.y0 and s != credits["name"]]
+        return name.y0 - max(bb.y1 for bb in below), fig.dpi
+
+    gap_full, dpi = gap_below_name(FULL_CREDITS)
+    gap_guide_only, _ = gap_below_name({**sparse, "guide": "Prof. X"})
+    assert gap_guide_only == pytest.approx(gap_full, abs=0.05 * dpi)      # within 0.05 in
