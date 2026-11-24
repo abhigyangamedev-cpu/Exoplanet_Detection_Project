@@ -127,6 +127,21 @@ def test_hook_shows_title_and_name_from_credits():
     assert any(ctx.credits["name"] in s for s in texts)
 
 
+@needs_data
+@pytest.mark.parametrize("scene_id,frac", [("01_hook", 0.6), ("05_pipeline", 0.05),
+                                           ("05_pipeline", 0.97)])
+def test_a_koi_id_is_called_a_signal_never_a_star(scene_id, frac):
+    ctx = make_ctx(scene_id, width=960, height=540)
+    texts = " ".join(drawn_texts(scene_module(scene_id).build(ctx), frac * ctx.duration))
+    star = ctx.load("star_planet.npz")
+    koi, planet = str(star["koi_name"]), str(star["kepler_name"])
+    assert planet                                           # the catalogue names this planet
+    assert f"signal {koi}" in texts and planet in texts
+    assert not re.search(r"star\s+K\d{5}\.\d\d", texts)
+    if frac > 0.9:                                          # the binary, too
+        assert f"signal {ctx.load('star_binary.npz')['koi_name']}" in texts
+
+
 # --- 02_problem -------------------------------------------------------------------------
 
 @needs_data

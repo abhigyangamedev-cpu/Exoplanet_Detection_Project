@@ -107,6 +107,7 @@ def build(ctx):
     close = orbit <= N_SLIDE                                 # drawn bigger when zoomed in
     in_transit = np.abs(phase) < s["duration_hours"] / 48.0
     years = (s["time"].max() - s["time"].min()) / 365.25
+    planet_name = f" {s['kepler_name']}" if str(s["kepler_name"]) else ""   # catalogue name
 
     # the trend as a line with breaks over the gaps between quarters
     tl_x = s["time"][::10] - t0
@@ -216,8 +217,8 @@ def build(ctx):
                      alpha=1.0 if lit else 0.55)
         a_star = 1 - style.ease(style.progress(f, f_panels - 0.02, f_panels))
         if a_star > 0:
-            fig.text(style.MARGIN, 0.855, f"star {s['koi_name']}: a confirmed planet, "
-                     f"{len(s['time']):,} brightness measurements over {years:.0f} years",
+            fig.text(style.MARGIN, 0.855, f"signal {s['koi_name']} (confirmed planet"
+                     f"{planet_name}): {len(s['time']):,} brightness measurements over {years:.0f} years",
                      ha="left", va="center", size=style.LABEL_SIZE - 2, color=style.MUTED,
                      alpha=a_star)
 
@@ -363,9 +364,10 @@ def build(ctx):
         hi = -0.12 * lo
         for box, hours, pct, colour, title, label, f_on in (
                 (LEFT, hours_p, planet_pct, style.C_PLANET,
-                 f"confirmed planet  {s['koi_name']}", "shallow, rounded dip", f_planet),
+                 f"confirmed planet{planet_name}, signal {s['koi_name']}",
+                 "shallow, rounded dip", f_planet),
                 (RIGHT, hours_b, binary_pct, style.C_FALSE,
-                 f"two stars eclipsing  {b['koi_name']}", "deep,\nsharp V", f_binary)):
+                 f"two stars eclipsing, signal {b['koi_name']}", "deep,\nsharp V", f_binary)):
             a_line = a * style.ease(style.progress(f, f_on - 0.02, f_on + 0.02))
             ax = fig.add_axes(box)
             ax.set_xlim(hours[0], hours[-1])
