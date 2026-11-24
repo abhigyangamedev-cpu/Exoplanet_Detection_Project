@@ -216,11 +216,15 @@ def build(ctx):
         ax.text(x_axis + BAR_BOX[2] * 8, y_base + BAR_BOX[3] * 9 + 0.35, "score", ha="center",
                 va="center", size=style.BODY_SIZE, weight="semibold", alpha=a)
 
-        bax.text(0.5, value - 0.006, f"{value:.3f}", ha="center", va="top",
-                 size=style.BODY_SIZE, weight="bold", color=style.BG,
-                 alpha=a * (grow > 0.3))
-        which = (f"model on {n_lc} dip + star measurements" if p_warn < 0.5
-                 else f"{n_lc} + {n_added} verdicts")
+        # the number is shown only while the bar rests on a measured score, never in between
+        at_rest = grow >= 1.0 and p_warn in (0.0, 1.0)
+        if at_rest:
+            score = leaked if p_warn == 1.0 else audited
+            bax.text(0.5, score - 0.006, f"{score:.3f}", ha="center", va="top",
+                     size=style.BODY_SIZE, weight="bold", color=style.BG, alpha=a,
+                     gid="score_value")
+        which = (f"this model uses {n_lc} of the {n_kept} kept columns" if p_warn < 0.5
+                 else f"its {n_lc} columns + the {n_added} verdicts")
         ax.text(x_axis + BAR_BOX[2] * 8, y_base - 0.7, which, ha="center", va="center",
                 size=style.LABEL_SIZE - 2,
                 color=style.C_WARN if p_warn >= 0.5 else style.FG, alpha=a)

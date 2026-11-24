@@ -305,7 +305,7 @@ def test_leakage_shows_counts_names_and_the_jump():
     shown = texts(honest)
     assert all(name in shown for name in VETTING)       # the six real names are on screen
     assert f"{n['n_audit_removed']} removed" in shown and f"{n_kept} kept" in shown
-    assert f"model on {n_lc} dip + star measurements" in shown and audited in shown
+    assert f"this model uses {n_lc} of the {n_kept} kept columns" in shown and audited in shown
     assert "verdicts" not in shown.replace("NASA's verdicts", "")
     top, colour = score_bar(draw, honest)
     assert top == pytest.approx(n["leak_lc_audited"])
@@ -314,7 +314,8 @@ def test_leakage_shows_counts_names_and_the_jump():
     # tiles and bar change state together: the six land as the score jumps
     jumped = texts(at["Too good"] + 1.0)
     assert leaked in jumped and "too good to be true" in jumped.lower()
-    assert f"+ {n_added} verdicts" in jumped and f"{n_lc} + {n_added} verdicts" in jumped
+    assert f"+ {n_added} verdicts" in jumped
+    assert f"its {n_lc} columns + the {n_added} verdicts" in jumped
     assert f"{n_kept + n_added} kept" not in jumped      # the counter never adds them in
     top, colour = score_bar(draw, at["Too good"] + 1.0)
     assert top == pytest.approx(n["leak_lc_plus_vetting"])
@@ -326,6 +327,30 @@ def test_leakage_shows_counts_names_and_the_jump():
     top, colour = score_bar(draw, ctx.duration - 0.01)
     assert top == pytest.approx(n["leak_lc_audited"])
     assert colour[:3] == pytest.approx(to_rgba(style.FG)[:3])
+
+
+@needs_data
+def test_leakage_shows_only_measured_scores():
+    """Across the whole scene, every score printed is one of the two real results; while the
+    bar grows or moves between them, no number is shown."""
+    ctx = make_ctx("04_leakage", width=960, height=540)
+    draw = scene_module("04_leakage").build(ctx)
+    n = ctx.numbers
+    real = {f"{n['leak_lc_audited']:.3f}", f"{n['leak_lc_plus_vetting']:.3f}"}
+    seen, moving = set(), 0
+    for frac in np.linspace(0.0, 0.999, 300):
+        t = frac * ctx.duration
+        fig = style.new_figure(960, 540)
+        draw(fig, t)
+        values = [a.get_text() for a in fig.findobj(lambda a: a.get_gid() == "score_value")]
+        scores = [s for s in drawn_texts(draw, t) if re.fullmatch(r"\d\.\d{3}", s)]
+        assert set(scores) <= real, (frac, scores)
+        seen |= set(scores)
+        bar = score_bar(draw, t)
+        if bar is not None and not any(abs(bar[0] - float(v)) < 1e-9 for v in real):
+            moving += 1
+            assert not values, (frac, values)          # in motion: no number
+    assert seen == real and moving > 0
 
 
 @needs_data
