@@ -78,6 +78,27 @@ def test_caption_cues_follow_word_timings():
     assert cues[-1][1] == pytest.approx(4.5)
 
 
+def test_caption_cues_leave_no_short_fragment_of_a_sentence():
+    # overflow inside a sentence that ends a word later: break at the comma instead
+    text = ("First, we locked away 1,335 signals as a final exam, marked only once, at the very "
+            "end. The other 5,342 were split into five practice groups.")
+    cues = [c[2] for c in caption_cues(text, [], 20.0)]
+    assert cues == ["First, we locked away 1,335 signals as a final exam, marked only once,",
+                    "at the very end. The other 5,342 were split into five practice groups."]
+    # a short last cue takes the words after the previous comma
+    text = ("Each star stays in one group, so a model cannot pass by recognising the star "
+            "instead of the signal.")
+    cues = [c[2] for c in caption_cues(text, [], 10.0)]
+    assert cues == ["Each star stays in one group,",
+                    "so a model cannot pass by recognising the star instead of the signal."]
+    # and the real narration: no cue shorter than 15 characters, every word kept in order
+    for scene_text in load_narration(NARRATION, NUMBERS).values():
+        cues = caption_cues(scene_text, [], 30.0)
+        assert all(len(c[2]) >= 15 for c in cues) or len(cues) == 1, cues
+        assert all(len(c[2]) <= 84 for c in cues)
+        assert " ".join(c[2] for c in cues).split() == scene_text.split()
+
+
 def _write_wav(path: Path, seconds: float, rate: int = 48000) -> None:
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)

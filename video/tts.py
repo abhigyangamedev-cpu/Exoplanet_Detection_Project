@@ -40,6 +40,9 @@ SAMPLE_VOICES = {"neerja": "en-IN-NeerjaNeural", "prabhat": "en-IN-PrabhatNeural
 RETRIES = 4
 
 Word = tuple[float, float, str]
+MIN_CUE_CHARS = 15            # a sentence fragment shorter than this is not left on its own
+SENTENCE_END = (".", "?", "!")
+CLAUSE_END = (",", ";", ":", ".", "?", "!")
 
 
 class Audio(NamedTuple):
@@ -159,26 +162,57 @@ def caption_cues(text: str, words: list[Word], duration: float,
     """Split text into on-screen cues of at most max_chars, timed by the word timings.
 
     A cue ends at a sentence end once it holds min(40, max_chars // 2) characters, or before a word
-    that would overflow it. Each cue lasts until the next begins; the last ends at
+    that would overflow it. No fragment stands apart from its sentence: when the overflow
+    break would leave fewer than MIN_CUE_CHARS of a sentence at the start of the next cue
+    (or as the last cue), the break moves back to the previous comma or sentence end.
+    Each cue lasts until the next begins; the last ends at
     ``duration``. Without word timings, time is shared out by character count.
     """
     tokens = text.split()
     if not tokens:
         return []
     starts = _token_starts(tokens, words, duration)
+
+    def width(idx: list[int]) -> int:
+        return len(" ".join(tokens[k] for k in idx))
+
+    def ends_sentence(k: int) -> bool:
+        return tokens[k].endswith(SENTENCE_END) or k == len(tokens) - 1
+
+    def back_up(group: list[int]) -> int | None:
+        """Position in group after its last comma or sentence end (not the group's own end)
+        that leaves at least 20 characters before it; None if there is none."""
+        for pos in range(len(group) - 1, 0, -1):
+            if tokens[group[pos - 1]].endswith(CLAUSE_END) and width(group[:pos]) >= 20:
+                return pos
+        return None
+
     groups: list[list[int]] = [[]]
-    length = 0
     for i, tok in enumerate(tokens):
-        if groups[-1] and length + 1 + len(tok) > max_chars:
-            groups.append([])
-            length = 0
-        length += len(tok) + (1 if groups[-1] else 0)
+        if groups[-1] and width(groups[-1]) + 1 + len(tok) > max_chars:
+            # the words up to this sentence's end would sit as a fragment at the start of
+            # the next cue: break earlier, at the last comma or sentence end, if there is one
+            head = [i]
+            while not ends_sentence(head[-1]):
+                head.append(head[-1] + 1)
+            pos = back_up(groups[-1]) if width(head) < MIN_CUE_CHARS else None
+            if pos is not None and width(groups[-1][pos:] + head) > max_chars:
+                pos = None
+            moved = groups[-1][pos:] if pos is not None else []
+            if pos is not None:
+                del groups[-1][pos:]
+            groups.append(moved)
         groups[-1].append(i)
-        sentence_end = tok.endswith((".", "?", "!")) and i < len(tokens) - 1
-        if sentence_end and length >= min(40, max_chars // 2):
+        sentence_end = tok.endswith(SENTENCE_END) and i < len(tokens) - 1
+        if sentence_end and width(groups[-1]) >= min(40, max_chars // 2):
             groups.append([])
-            length = 0
     groups = [g for g in groups if g]
+    # a short last cue: take the previous cue's words after its last comma or sentence end
+    if len(groups) > 1 and width(groups[-1]) < MIN_CUE_CHARS:
+        pos = back_up(groups[-2])
+        if pos is not None and width(groups[-2][pos:] + groups[-1]) <= max_chars:
+            groups[-1] = groups[-2][pos:] + groups[-1]
+            del groups[-2][pos:]
     cue_starts = [starts[g[0]] for g in groups]
     cue_ends = cue_starts[1:] + [duration]
     return [
