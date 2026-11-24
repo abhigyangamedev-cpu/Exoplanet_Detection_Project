@@ -15,6 +15,7 @@ never changed; a line too long for the window is cut at the end with an ellipsis
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -103,8 +104,10 @@ def _outputs(lines, f0, f1):
 
 
 def summary_line(pytest_lines: list[str]) -> str:
-    """pytest's summary ("N passed in S s"): the last non-empty line of its output."""
-    return next(line for line in reversed(pytest_lines) if line.strip()).strip()
+    """pytest's summary ("N passed in S s"): the last non-empty line of its output, without
+    the wall-clock repeat pytest adds to runs over a minute (" (0:02:01)")."""
+    line = next(line for line in reversed(pytest_lines) if line.strip()).strip()
+    return re.sub(r" \(\d+:\d\d:\d\d\)$", "", line)
 
 
 def build(ctx):
