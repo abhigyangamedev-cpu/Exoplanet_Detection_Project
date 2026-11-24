@@ -26,7 +26,9 @@ BINARY_PERIOD_S = 2.5                # seconds per orbit of the eclipsing-binary
 SPACING = 0.028                      # dot cloud: radius = SPACING * sqrt(index)
 DOT_S = 7.0                          # dot size, points^2
 FLIGHT = 0.045                       # each dot's flight, fraction of the scene
-TRANSIT_THRESHOLD = -0.5             # local-view level that counts as "in the dip"
+DIP_START = 0.02                     # fraction of the full dip that counts as "falling"
+CHORD_DY = 0.25                      # the planet crosses this many star radii below centre
+COUNT_LEAD = 0.09                    # a class's dots start flying this long before its number
 
 
 def _spiral(n: int, centre) -> np.ndarray:
@@ -37,17 +39,31 @@ def _spiral(n: int, centre) -> np.ndarray:
     return np.column_stack([centre[0] + r * np.cos(a), centre[1] + r * np.sin(a)])
 
 
+def dip_edges(lv: np.ndarray, start: float = DIP_START) -> tuple[int, int]:
+    """(first, last) local-view bin of the dip: the run of bins around the minimum that lie
+    more than ``start`` of the full depth below the baseline. The planet touches the star's
+    edge at the first and leaves it at the last (first and last contact)."""
+    lv = np.asarray(lv, float)
+    centre = int(np.argmin(lv))
+    inside = lv < start * lv.min()
+    lo = centre - int(np.argmin(inside[centre::-1])) + 1
+    hi = centre + int(np.argmin(inside[centre:])) - 1
+    return lo, hi
+
+
+def planet_x(k: float, lo: int, hi: int, sx: float, star_r: float, planet_r: float) -> float:
+    """Planet centre x when the trace cursor is at local-view bin k: the planet's disc
+    touches the star's limb (on its chord, CHORD_DY star radii below centre) at bins lo and
+    hi and is centred on the star half way between."""
+    reach = np.sqrt((star_r + planet_r) ** 2 - (CHORD_DY * star_r) ** 2)
+    return sx - reach + 2 * reach * (k - lo) / max(hi - lo, 1)
+
+
 def _transit(ctx):
     star = ctx.load("star_planet.npz")
     lv = star["local_view"]
-    centre = int(np.argmin(lv))
-    inside = lv < TRANSIT_THRESHOLD
-    lo = centre - int(np.argmin(inside[centre::-1]))
-    hi = centre + int(np.argmin(inside[centre:]))
-    hours = np.abs(star["phase"] * 24.0)
-    flux = star["detrended_flux"]
-    depth = 1.0 - np.median(flux[hours < 0.1 * star["duration_hours"]])
-    return lv, lo, hi, float(depth)
+    lo, hi = dip_edges(lv)
+    return lv, lo, hi, float(star["depth"])
 
 
 def build(ctx):
@@ -80,9 +96,12 @@ def build(ctx):
     f_false = cue_fraction(ctx, f"{n_false:,}", 0.72)
     f_binary = cue_fraction(ctx, "two stars", 0.86)
     f_cross0, f_cross1 = 0.01, f_transit
-    f_gather1 = f_use + 0.12
-    conf_span = (f_conf - 0.01, max(f_false - 0.04, f_conf + 0.08))
-    false_span = (f_false - 0.01, min(f_false + 0.13, 0.95 - FLIGHT))
+    # the total has arrived as it is spoken ("We use <n_kois> ...")
+    f_gather1 = max(cue_fraction(ctx, f"{n_kois:,}", f_use + 0.03), f_use + 0.01)
+    # each class's dots fly so that its counter has arrived as its number is spoken
+    conf_span = (max(f_conf - COUNT_LEAD, f_gather1 + 0.01), f_conf)
+    false_span = (max(f_false - COUNT_LEAD, conf_span[1] + 0.005), f_false)
+    f_left = false_span[1]                             # the grey cloud is empty
     depart = np.where(is_conf, conf_span[0] + (conf_span[1] - FLIGHT - conf_span[0]) * rank,
                       false_span[0] + (false_span[1] - FLIGHT - false_span[0]) * rank)
 
@@ -111,18 +130,20 @@ def build(ctx):
         for scale in np.linspace(1.3, 1.02, 8):
             ax.add_patch(Circle((sx, sy), STAR_R * scale, color=style.C_ACCENT,
                                 alpha=0.06 * a, lw=0))
-        ax.add_patch(Circle((sx, sy), STAR_R, color=style.C_ACCENT, alpha=a, lw=0))
+        ax.add_patch(Circle((sx, sy), STAR_R, color=style.C_ACCENT, alpha=a, lw=0,
+                            gid="star_disc"))
         for scale in np.linspace(0.95, 0.35, 7):
             ax.add_patch(Circle((sx, sy), STAR_R * scale, color=style.FG, alpha=0.07 * a,
                                 lw=0))
-        # first contact at bin lo, last contact at bin hi
-        reach = STAR_R + planet_r
-        px = sx - reach + 2 * reach * (k - lo) / max(hi - lo, 1)
+        # first contact as the trace begins to fall (bin lo), last as it is back (bin hi)
+        px = planet_x(k, lo, hi, sx, STAR_R, planet_r)
+        py = sy - CHORD_DY * STAR_R
         a_p = a * (1 - style.ease(style.progress(abs(px - sx), 1.5 * STAR_R, 1.85 * STAR_R)))
         if a_p > 0:
-            ax.add_patch(Circle((px, sy - 0.25 * STAR_R), planet_r, facecolor=style.BG,
-                                edgecolor=style.MUTED, lw=1.5, alpha=a_p, zorder=3))
-            ax.text(px, sy - 0.25 * STAR_R - planet_r - 0.3, "planet", ha="center",
+            ax.add_patch(Circle((px, py), planet_r, facecolor=style.BG,
+                                edgecolor=style.MUTED, lw=1.5, alpha=a_p, zorder=3,
+                                gid="planet"))
+            ax.text(px, py - planet_r - 0.3, "planet", ha="center",
                     va="center", size=style.LABEL_SIZE, color=style.MUTED, alpha=a_p,
                     zorder=3)
 
@@ -137,7 +158,8 @@ def build(ctx):
                 va="center", size=style.LABEL_SIZE, color=style.FG, alpha=a)
         upto = int(np.floor(k)) + 1
         if upto >= 2:
-            ax.plot(trace_x[:upto], trace_y[:upto], color=style.FG, lw=3, alpha=a)
+            ax.plot(trace_x[:upto], trace_y[:upto], color=style.FG, lw=3, alpha=a,
+                    gid="trace")
         if 0 < sweep < 1:
             ax.scatter([trace_x[upto - 1]], [trace_y[upto - 1]], s=90, color=style.C_ACCENT,
                        linewidths=0, alpha=a, zorder=4)
@@ -158,11 +180,13 @@ def build(ctx):
         fig.text(style.MARGIN, style.HEADING_Y, "Signals astronomers have already judged",
                  ha="left", va="top", size=style.HEADING_SIZE, weight="semibold",
                  color=style.FG, alpha=a)
-        shown = int(round(n_kois * style.ease(style.progress(f, f_use, f_gather1))))
-        ax.text(GREY_XY[0], 7.4, f"{shown:,}", ha="right", va="center",
-                size=style.BODY_SIZE, weight="semibold", color=style.FG, alpha=a)
-        ax.text(GREY_XY[0] + 0.12, 7.4, "Kepler signals, one dot each", ha="left",
-                va="center", size=style.BODY_SIZE, color=style.MUTED, alpha=a)
+        shown = int(round(n_kois * style.ease(style.progress(f, f_use - 0.01, f_gather1))))
+        a_all = a * (1 - style.ease(style.progress(f, f_left, f_left + 0.03)))
+        if a_all > 0:                                  # gone once its dots have left
+            ax.text(GREY_XY[0], 7.4, f"{shown:,}", ha="right", va="center",
+                    size=style.BODY_SIZE, weight="semibold", color=style.FG, alpha=a_all)
+            ax.text(GREY_XY[0] + 0.12, 7.4, "Kepler signals, one dot each", ha="left",
+                    va="center", size=style.BODY_SIZE, color=style.MUTED, alpha=a_all)
 
         # dot positions: grey slot -> class cloud along an arc
         p = np.clip((f - depart) / FLIGHT, 0.0, 1.0)
@@ -177,10 +201,10 @@ def build(ctx):
 
         for colour, xy0, count, label, f_on in (
                 (style.C_PLANET, CONF_XY, int((p[is_conf] >= 1).sum()),
-                 "confirmed planets", f_conf),
+                 "confirmed planets", conf_span[0]),
                 (style.C_FALSE, FALSE_XY, int((p[~is_conf] >= 1).sum()),
-                 "false positives", f_false)):
-            a_lab = a * style.ease(style.progress(f, f_on - 0.02, f_on + 0.02))
+                 "false positives", false_span[0])):
+            a_lab = a * style.ease(style.progress(f, f_on, f_on + 0.03))
             if a_lab <= 0:
                 continue
             ax.text(xy0[0], 6.75, f"{count:,}", ha="center", va="center",

@@ -134,24 +134,86 @@ def test_problem_counts_up_to_the_real_numbers():
     ctx = make_ctx("02_problem", width=960, height=540)
     draw = scene_module("02_problem").build(ctx)
     n = ctx.numbers
-    final = {f"{n['n_confirmed']:,}", f"{n['n_false_positive']:,}", f"{n['n_kois']:,}"}
+    final = {f"{n['n_confirmed']:,}", f"{n['n_false_positive']:,}"}
+    total = f"{n['n_kois']:,}"
     assert final <= set(drawn_texts(draw, ctx.duration - 0.01))
-    assert not final & set(drawn_texts(draw, 0.0))
+    assert not (final | {total}) & set(drawn_texts(draw, 0.0))
+    # each count has arrived as its number is spoken
+    for number in (total, *final):
+        t = scenes.cue_fraction(ctx, number, -1.0) * ctx.duration
+        assert t >= 0, number
+        assert number in drawn_texts(draw, t + 0.25), number
+    # the total and its label leave with the last dot from the grey cloud
+    end = drawn_texts(draw, ctx.duration - 0.01)
+    assert total not in end and "Kepler signals, one dot each" not in end
 
     # the counters count up: every number on screen only grows, through values in between
-    seen: dict[int, list[int]] = {}
-    for frac in np.linspace(0.25, 0.999, 40):
-        for i, s in enumerate(sorted_counts(drawn_texts(draw, frac * ctx.duration))):
-            seen.setdefault(i, []).append(s)
-    for target in (n["n_kois"], n["n_confirmed"], n["n_false_positive"]):
-        series = next(v for v in seen.values() if v[-1] == target)
-        assert series == sorted(series)
+    seen: dict[str, list[int]] = {}
+    for frac in np.linspace(0.25, 0.999, 80):
+        for label, count in labelled_counts(drawn_texts(draw, frac * ctx.duration)).items():
+            seen.setdefault(label, []).append(count)
+    for label, target in (("Kepler signals, one dot each", n["n_kois"]),
+                          ("confirmed planets", n["n_confirmed"]),
+                          ("false positives", n["n_false_positive"])):
+        series = seen[label]
+        assert series == sorted(series) and series[-1] == target, label
         assert any(0 < v < target for v in series), target
 
 
-def sorted_counts(texts: list[str]) -> list[int]:
-    """The plain numbers on screen ("2,731"), in drawing order."""
-    return [int(s.replace(",", "")) for s in texts if re.fullmatch(r"\d[\d,]*", s)]
+@needs_data
+def test_problem_planet_touches_the_limb_as_the_trace_falls():
+    """The planet's disc meets the star's edge exactly while the trace leaves (and returns
+    to) its baseline, and is centred on the star at the bottom of the dip."""
+    prob = scene_module("02_problem")
+    ctx = make_ctx("02_problem", width=960, height=540)
+    draw = prob.build(ctx)
+    star = ctx.load("star_planet.npz")
+    planet_r = prob.STAR_R * np.sqrt(float(star["depth"]))
+    f_end = scenes.cue_fraction(ctx, "called", -1.0)
+    assert f_end > 0
+    tol = 0.05 * prob.TRACE_H                            # 5% of the full dip
+    samples = []
+    for frac in np.linspace(0.0, f_end, 500):
+        fig = style.new_figure(960, 540)
+        draw(fig, frac * ctx.duration)
+        planets = fig.findobj(lambda a: a.get_gid() == "planet")
+        traces = fig.findobj(lambda a: a.get_gid() == "trace")
+        if not planets or not traces:
+            continue
+        (px, py), y = planets[0].center, traces[0].get_ydata()[-1]
+        sx, sy = prob.STAR_XY
+        samples.append((np.hypot(px - sx, py - sy), abs(px - sx), y))
+    overlap = [s for s in samples if s[0] < prob.STAR_R + planet_r]
+    assert overlap and len(overlap) < len(samples)
+    # off the disc: the trace is at its baseline
+    assert all(abs(y - prob.TRACE_BASE) < tol for d, _, y in samples
+               if d > prob.STAR_R + planet_r)
+    # first touch: the trace is only beginning to fall
+    first = next(i for i, s in enumerate(samples) if s[0] < prob.STAR_R + planet_r)
+    assert abs(samples[first][2] - prob.TRACE_BASE) < tol
+    assert abs(samples[first - 1][2] - prob.TRACE_BASE) < tol
+    # mid-transit: the trace is at the full depth
+    _, _, y_mid = min(samples, key=lambda s: s[1])
+    assert abs(y_mid - (prob.TRACE_BASE - prob.TRACE_H)) < tol
+
+
+def test_problem_dip_edges_find_where_the_dip_starts():
+    prob = scene_module("02_problem")
+    lv = np.zeros(21)
+    lv[7:14] = [-0.01, -0.3, -0.8, -1.0, -0.8, -0.3, -0.05]
+    assert prob.dip_edges(lv) == (8, 13)                  # -0.01 is still baseline
+    lo, hi = 8, 13
+    sx, r_star, r_p = 4.0, 2.0, 0.25
+    reach = np.sqrt((r_star + r_p) ** 2 - (prob.CHORD_DY * r_star) ** 2)
+    assert prob.planet_x(lo, lo, hi, sx, r_star, r_p) == pytest.approx(sx - reach)
+    assert prob.planet_x(hi, lo, hi, sx, r_star, r_p) == pytest.approx(sx + reach)
+    assert prob.planet_x((lo + hi) / 2, lo, hi, sx, r_star, r_p) == pytest.approx(sx)
+
+
+def labelled_counts(texts: list[str]) -> dict[str, int]:
+    """The plain numbers on screen ("2,731"), keyed by the label drawn right after each."""
+    return {texts[i + 1]: int(s.replace(",", "")) for i, s in enumerate(texts[:-1])
+            if re.fullmatch(r"\d[\d,]*", s)}
 
 
 # --- 03_data ------------------------------------------------------------------------------
@@ -835,10 +897,25 @@ def test_end_shows_every_credit_and_fits(width, height):
 
 @needs_data
 def test_end_renders_the_placeholder_credits():
-    ctx = make_ctx("10_end", width=960, height=540)
-    _, _, texts = end_frame_texts(ctx.credits)
+    placeholders = {"title": "Kepler Exoplanet Transit Detection", "name": "Your Name",
+                    "team": [], "institution": "Institution", "guide": "Guide Name"}
+    _, _, texts = end_frame_texts(placeholders)
     strings = [a.get_text() for a in texts]
-    assert ctx.credits["title"] in strings and ctx.credits["name"] in strings
+    assert placeholders["title"] in strings and placeholders["name"] in strings
+    assert "Guide: Guide Name" in strings
+
+
+@needs_data
+def test_end_renders_the_credits_file_and_fits():
+    """Whatever video/credits.json holds is shown and fits (an empty guide has no label)."""
+    ctx = make_ctx("10_end", width=960, height=540)
+    fig, renderer, texts = end_frame_texts(ctx.credits)
+    strings = [a.get_text() for a in texts]
+    assert ctx.credits["title"] in strings
+    assert any(" ".join(ctx.credits["name"].split()) == " ".join(s.split()) for s in strings)
+    if not (ctx.credits.get("guide") or "").strip():
+        assert not any(s.startswith("Guide") for s in strings)
+    assert_fits_and_no_overlap(fig, renderer, texts)
 
 
 @needs_data

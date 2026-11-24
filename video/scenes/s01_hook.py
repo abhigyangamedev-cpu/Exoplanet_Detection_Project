@@ -32,6 +32,13 @@ def draw_starfield(fig, t: float) -> None:
     style.starfield(fig.add_axes((0, 0, 1, 1)), STARFIELD_SEED, t)
 
 
+def signal_label(koi: str, planet: str, period: float) -> str:
+    """The panel label: the signal's catalogue id (not a star), and the confirmed planet's
+    name when the catalogue gives one."""
+    name = f" (planet {planet})" if planet else ""
+    return f"Real Kepler data: signal {koi}{name}\nfolded on its {period:.2f}-day orbit"
+
+
 def _light_curve(ctx):
     star = ctx.load("star_planet.npz")
     hours = star["phase"] * 24.0
@@ -49,7 +56,8 @@ def _light_curve(ctx):
                       for i in range(len(bin_h))])
     ok = np.isfinite(bin_f)
     return dict(pts_h=pts_h, pts_f=pts_f, bin_h=bin_h[ok], bin_f=bin_f[ok],
-                name=str(star["koi_name"]), period=float(star["period"]),
+                name=str(star["koi_name"]), planet=str(star["kepler_name"]),
+                depth=float(star["depth"]), period=float(star["period"]),
                 half_dur=float(star["duration_hours"]) / 2.0)
 
 
@@ -57,7 +65,7 @@ def build(ctx):
     lc = _light_curve(ctx)
     title = ctx.credits["title"]
     name = ctx.credits["name"]
-    depth_pct = 100.0 * (1.0 - lc["bin_f"].min())
+    depth_pct = 100.0 * lc["depth"]                    # the one depth, from extract_data
     f_lo = lc["bin_f"].min() - 0.25 * (1.0 - lc["bin_f"].min())
     f_hi = 1.0 + 0.2 * (1.0 - lc["bin_f"].min())
 
@@ -108,11 +116,10 @@ def build(ctx):
                        labelcolor=(*to_rgb(style.FG), a_panel))
 
         a_label = style.ease(style.progress(f, f_kepler, f_kepler + 0.06))
-        fig.text(LC_RECT[0], LC_RECT[1] + LC_RECT[3] + 0.035,
-                 f"Real Kepler data: star {lc['name']}, folded on its "
-                 f"{lc['period']:.2f}-day orbit",
-                 ha="left", va="center", size=style.LABEL_SIZE, color=style.MUTED,
-                 alpha=a_label)
+        fig.text(LC_RECT[0], LC_RECT[1] + LC_RECT[3] + 0.015,
+                 signal_label(lc["name"], lc["planet"], lc["period"]),
+                 ha="left", va="bottom", size=style.LABEL_SIZE, color=style.MUTED,
+                 alpha=a_label, linespacing=1.25)
         a_dip = style.ease(style.progress(f, f_dimmer, f_dimmer + 0.05))
         ax.annotate(f"the star dims by {depth_pct:.1f}%", xy=(0.0, lc["bin_f"].min()),
                     xytext=(5.0, lc["bin_f"].min() + 0.15 * (f_hi - f_lo)),
