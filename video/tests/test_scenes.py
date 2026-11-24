@@ -520,6 +520,36 @@ def test_models_parts_appear_as_narrated_without_a_score_value():
         assert not any(re.search(r"\d\.\d", s) for s in drawn_texts(draw, frac * ctx.duration))
 
 
+@needs_data
+def test_models_keep_their_scene_8_colours_and_pulses_never_cross_text():
+    from matplotlib.colors import to_rgb
+    from matplotlib.patches import Polygon
+    ctx = make_ctx("06_models", width=960, height=540)
+    draw = scene_module("06_models").build(ctx)
+    fig = style.new_figure(960, 540)
+    draw(fig, 0.99 * ctx.duration)
+    fig.canvas.draw()
+    by_text = {a.get_text(): a for a in fig.findobj(Text) if a.get_text()}
+    assert to_rgb(by_text["Neural network"].get_color()) == to_rgb(style.C_NET)
+    assert to_rgb(by_text["Decision trees"].get_color()) == to_rgb(style.C_TREES)
+    towers = [p for p in fig.findobj(Polygon) if p.get_edgecolor()[3] > 0]
+    assert towers and all(to_rgb(p.get_edgecolor()) == to_rgb(style.C_NET) for p in towers)
+
+    for frac in np.linspace(0.9, 0.999, 25):
+        fig = style.new_figure(960, 540)
+        draw(fig, frac * ctx.duration)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        groups = fig.findobj(lambda a: a.get_gid() == "pulses")
+        assert len(groups) == 2                          # both models are flowing
+        pts = np.vstack([g.get_offset_transform().transform(g.get_offsets()) for g in groups])
+        boxes = [a.get_window_extent(renderer) for a in fig.findobj(Text)
+                 if a.get_text() and a.get_visible() and a.get_gid() != "caption"]
+        for x, y in pts:
+            for bb in boxes:
+                assert not bb.expanded(1.0, 1.0).contains(x, y), (frac, x, y)
+
+
 # --- 07_integration -----------------------------------------------------------------------
 
 def extract_data_commands() -> dict[str, str]:

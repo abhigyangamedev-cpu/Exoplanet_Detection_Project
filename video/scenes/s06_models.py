@@ -8,7 +8,9 @@ and no score value: the score is drawn as a bare 0-1 scale.
 Bottom row: gradient boosting (src/exoplanet/models/tabular.py) as a row of small trees,
 each one added after the last, fed by the three catalogue feature groups the project uses
 (configs/default.yaml features.groups: transit, stellar, centroid), labelled in plain words.
-Each part appears as it is narrated; small dots flow through a model once it is complete.
+Each part appears as it is narrated; small dots flow through a model once it is complete,
+passing behind its labelled shapes, never over text. Each model keeps its colour from scene
+8: style.C_NET for the network, style.C_TREES for the trees (the views stay C_PLANET).
 """
 
 from __future__ import annotations
@@ -121,6 +123,12 @@ def build(ctx):
                            [GAUGE_X[0] - 0.15, CNN_MID]]) for y in (g_mid, l_mid)]
     tree_paths = [np.array([[FEATURE_X[1], y], [TREE_XS[0] - 0.55, TREE_MID],
                             [GAUGE_X[0] - 0.15, TREE_MID]]) for y in FEATURE_YS]
+    # (x0, x1, y0, y1) where the dots are not drawn: the towers (their "convolutions" label)
+    # and the trees' "..." label
+    cnn_hide = [(TOWER_X[0] - 0.05, TOWER_X[1] + 0.05, y0, y1) for y0, y1 in (GLOBAL_Y, LOCAL_Y)]
+    cnn_hide += [(x0, x1, CNN_MID - NODE_H / 2, CNN_MID + NODE_H / 2)     # behind the boxes
+                 for x0, x1 in (MERGE_BOX, DENSE_BOX)]
+    tree_hide = [(TREE_XS[-1] + 0.35, TREE_XS[-1] + 0.95, TREE_MID - 0.4, TREE_MID + 0.4)]
 
     def a_at(f, start, dur=0.03):
         return style.ease(style.progress(f, start, start + dur))
@@ -136,9 +144,9 @@ def build(ctx):
         _draw_cnn(ax, f, t)
         _draw_trees(ax, f, t)
 
-    def _header(ax, y, title, sub, alpha):
+    def _header(ax, y, title, sub, alpha, colour):
         ax.text(X0, y, title, ha="left", va="center", size=style.BODY_SIZE,
-                weight="semibold", color=style.C_ACCENT, alpha=alpha)
+                weight="semibold", color=colour, alpha=alpha)
         x_sub = X0 + text_width(title, style.BODY_SIZE, weight="semibold") + 0.25
         ax.text(x_sub, y, sub, ha="left", va="center", size=style.LABEL_SIZE,
                 color=style.MUTED, alpha=alpha)
@@ -147,7 +155,8 @@ def build(ctx):
         a_head = a_at(f, f_nn - 0.01)
         if a_head <= 0:
             return
-        _header(ax, CNN_HEAD_Y, "Neural network", "looks at the two pictures", a_head)
+        _header(ax, CNN_HEAD_Y, "Neural network", "looks at the two pictures", a_head,
+                style.C_NET)
         a_pic = a_at(f, f_pics - 0.02, 0.04)
         for (y0, y1), key, plain in ((GLOBAL_Y, "global", "whole orbit"),
                                      (LOCAL_Y, "local", "close-up of the transit")):
@@ -169,11 +178,11 @@ def build(ctx):
             _arrow(ax, (THUMB_X[1] + 0.05, mid), (TOWER_X[0] - 0.05, mid), a_tow)
             ax.add_patch(Polygon([(TOWER_X[0], mid - h / 2), (TOWER_X[1], mid - h / 4.5),
                                   (TOWER_X[1], mid + h / 4.5), (TOWER_X[0], mid + h / 2)],
-                                 closed=True, facecolor=style.C_PLANET, alpha=0.16 * a_tow,
+                                 closed=True, facecolor=style.C_NET, alpha=0.16 * a_tow,
                                  edgecolor="none"))
             ax.add_patch(Polygon([(TOWER_X[0], mid - h / 2), (TOWER_X[1], mid - h / 4.5),
                                   (TOWER_X[1], mid + h / 4.5), (TOWER_X[0], mid + h / 2)],
-                                 closed=True, facecolor="none", edgecolor=style.C_PLANET,
+                                 closed=True, facecolor="none", edgecolor=style.C_NET,
                                  lw=1.6, alpha=a_tow))
             ax.text((TOWER_X[0] + TOWER_X[1]) / 2 - 0.1, mid, "convolutions", ha="center",
                     va="center", size=style.LABEL_SIZE - 5, color=style.FG, alpha=a_tow)
@@ -192,13 +201,14 @@ def build(ctx):
         _arrow(ax, (DENSE_BOX[1] + 0.04, CNN_MID), (GAUGE_X[0] - 0.12, CNN_MID), a_gauge)
         _gauge(ax, CNN_MID, a_gauge, a_at(f, f_zero - 0.01))
         if f >= f_score + 0.04:
-            _pulses(ax, cnn_paths, t, a_at(f, f_score + 0.04, 0.04))
+            _pulses(ax, cnn_paths, t, a_at(f, f_score + 0.04, 0.04), cnn_hide)
 
     def _draw_trees(ax, f, t):
         a_head = a_at(f, f_team - 0.01)
         if a_head <= 0:
             return
-        _header(ax, TREE_HEAD_Y, "Decision trees", "a team of small trees", a_head)
+        _header(ax, TREE_HEAD_Y, "Decision trees", "a team of small trees", a_head,
+                style.C_TREES)
         span = max(f_fix - f_team, 0.04)
         for i, x in enumerate(TREE_XS):
             a = a_at(f, f_team + span * i / len(TREE_XS), 0.025)
@@ -206,9 +216,11 @@ def build(ctx):
                 continue
             edges, nodes, leaves = _tree_segments(x, TREE_MID, i + 2)
             for p, q in edges:
-                ax.plot([p[0], q[0]], [p[1], q[1]], color=style.FG, lw=1.6, alpha=0.8 * a)
-            ax.scatter(*np.transpose(nodes), s=70, color=style.FG, alpha=a, linewidths=0, zorder=3)
-            ax.scatter(*np.transpose(leaves), s=45, color=style.C_ACCENT, alpha=a, linewidths=0,
+                ax.plot([p[0], q[0]], [p[1], q[1]], color=style.C_TREES, lw=1.6,
+                        alpha=0.8 * a)
+            ax.scatter(*np.transpose(nodes), s=70, color=style.C_TREES, alpha=a, linewidths=0,
+                       zorder=3)
+            ax.scatter(*np.transpose(leaves), s=45, color=style.C_TREES, alpha=a, linewidths=0,
                        zorder=3)
             if i:
                 _arrow(ax, (x - TREE_DX + TREE_W / 2 + 0.02, TREE_MID),
@@ -242,7 +254,7 @@ def build(ctx):
         _arrow(ax, (TREE_XS[-1] + 0.95, TREE_MID), (GAUGE_X[0] - 0.12, TREE_MID), a_out)
         _gauge(ax, TREE_MID, a_out, a_out)
         if f >= f_groups[-1] + 0.02:
-            _pulses(ax, tree_paths, t, a_at(f, f_groups[-1] + 0.02))
+            _pulses(ax, tree_paths, t, a_at(f, f_groups[-1] + 0.02), tree_hide)
 
     def _gauge(ax, y, alpha, a_ends):
         if alpha <= 0:
@@ -257,10 +269,13 @@ def build(ctx):
             ax.text(x, y - GAUGE_H / 2 - 0.22, label, ha="center", va="center",
                     size=style.LABEL_SIZE, color=style.FG, alpha=a_ends)
 
-    def _pulses(ax, paths, t, alpha):
+    def _pulses(ax, paths, t, alpha, hide):
         s = (0.35 * t + np.arange(N_PULSES) / N_PULSES) % 1.0       # ambient, seconds
         pts = np.vstack([polyline_point(p, (s + 0.13 * k) % 1.0) for k, p in enumerate(paths)])
+        for x0, x1, y0, y1 in hide:          # pass behind the labelled shapes, never over text
+            inside = ((pts[:, 0] > x0) & (pts[:, 0] < x1) & (pts[:, 1] > y0) & (pts[:, 1] < y1))
+            pts = pts[~inside]
         ax.scatter(pts[:, 0], pts[:, 1], s=40, color=style.C_ACCENT, alpha=0.9 * alpha,
-                   linewidths=0, zorder=0.5)   # under boxes: seen on arrows
+                   linewidths=0, zorder=0.5, gid="pulses")   # under boxes: seen on arrows
 
     return draw
