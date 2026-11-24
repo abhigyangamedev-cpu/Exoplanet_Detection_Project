@@ -482,6 +482,44 @@ def test_integration_steps_light_up_in_narrated_order():
     assert first_lit["fetch"] > 0.05                     # not lit before it is named
 
 
+def assert_summary_called_out(texts: list[str], pytest_lines: list[str], summary: str):
+    """The terminal shows pytest's raw last line; the call-out shows the summary. Runs over a
+    minute end the raw line with the wall time again (" (0:02:01)"), which the call-out drops;
+    shorter runs make the two strings identical."""
+    last = next(line for line in reversed(pytest_lines) if line.strip()).strip()
+    assert last.startswith(summary)
+    same = last == summary
+    assert texts.count(summary) == 1 + same             # call-out (and terminal if same)
+    assert texts.count(last) == 1 + same                # terminal (and call-out if same)
+
+
+def test_integration_summary_line_drops_only_the_wall_time():
+    integ = scene_module("07_integration")
+    assert integ.summary_line(["", "5 passed in 61.2s (0:01:01)", ""]) == "5 passed in 61.2s"
+    assert integ.summary_line(["....", "5 passed in 3.2s", ""]) == "5 passed in 3.2s"
+
+
+@needs_data
+@pytest.mark.parametrize("last_line", ["132 passed in 41.07s", "132 passed in 121.56s (0:02:01)"])
+def test_integration_calls_out_the_summary_for_short_and_long_runs(tmp_path, last_line):
+    """Both pytest summary forms, independent of which capture is on disk."""
+    import shutil
+    integ = scene_module("07_integration")
+    data = tmp_path / "data"
+    shutil.copytree(engine.DATA_DIR, data)
+    lines = ["." * 40 + " [100%]", last_line]
+    (data / "terminal" / "pytest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ctx = make_ctx("07_integration", width=960, height=540)
+    ctx.data_dir = data
+    draw = integ.build(ctx)
+    t = scenes.cue_fraction(ctx, "Building the views", -1.0) * ctx.duration
+    assert t >= 0
+    texts = drawn_texts(draw, t - 0.3)
+    summary = integ.summary_line(lines)
+    assert summary == "132 passed in " + last_line.split(" in ")[1].split(" (")[0]
+    assert_summary_called_out(texts, lines, summary)
+
+
 @needs_data
 def test_integration_replays_the_real_captures_with_their_captions():
     integ = scene_module("07_integration")
@@ -500,11 +538,7 @@ def test_integration_replays_the_real_captures_with_their_captions():
     tests = drawn_texts(draw, at("Building the views") - 0.3)
     summary = integ.summary_line(capture("pytest"))
     assert re.fullmatch(r"\d+ passed in [\d.]+s", summary)
-    # called out beside the terminal; the terminal shows pytest's raw last line, which runs
-    # over a minute end with the wall time again, e.g. " (0:02:01)"
-    last = next(line for line in reversed(capture("pytest")) if line.strip()).strip()
-    assert tests.count(summary) + tests.count(last) == 2 and last.startswith(summary)
-    assert integ.summary_line(["", "5 passed in 61.2s (0:01:01)", ""]) == "5 passed in 61.2s"
+    assert_summary_called_out(tests, capture("pytest"), summary)
     assert "> " + integ.CMD_PYTEST in tests
     assert all(line in tests for line in capture("make_report"))
 
@@ -639,6 +673,8 @@ def test_results_dev_scores_only_as_practice_groups():
 
     learned = shown(draw, at["It learned"] + 1.0)
     assert f"first: {n['n_dev_cnn']:,} of {n['n_dev']:,} (21%)" in learned
+    assert "The network learned from only part of the data" in learned     # heading fits
+    assert "Final exam: what the neural network misses" not in learned
     for frac in np.linspace(0.0, 0.999, 40):
         t = frac * ctx.duration
         texts = drawn_texts(draw, t)

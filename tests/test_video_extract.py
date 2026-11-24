@@ -70,7 +70,9 @@ def test_text_fields(numbers):
     assert "min" in numbers["cnn_full_train_time_text"]
     assert len(numbers["next_steps"]) == 3
     assert all(0 < len(s) <= 70 and "`" not in s for s in numbers["next_steps"])
-    assert numbers["sources"]["next_steps"] == "docs/evaluation.md"
+    assert numbers["sources"]["next_steps"] == (
+        "docs/evaluation.md (plain wording, video/extract_data.py PLAIN_STEPS)"
+    )
 
 
 def test_next_steps_are_plain_versions_of_the_documented_steps(numbers):

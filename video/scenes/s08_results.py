@@ -140,8 +140,11 @@ def build(ctx):
     f_learned = said("It learned", 0.64)
     f_retrain = said("Retrained", 0.715)
     # the retrained network first ("it scores ..."), then the catalogue model ("against ...")
+    # the catalogue curve starts a little before "against", so it is (nearly) drawn when its
+    # score is spoken; the caption already shows "against <score>" from the start of the cue
+    lead = 0.04
     f_dev = {"cnn_full": f_retrain + 0.01,
-             "tabular_lc": said("against", f_retrain + 0.14) - 0.04}
+             "tabular_lc": said("against", f_retrain + 0.14) - lead}
     f_dev_score = {m: said(score_text(dev[m][0]), f_dev[m] + 0.1) for m in DEV_MODELS}
 
     def a_in(f, start, dur=FADE):
@@ -167,7 +170,9 @@ def build(ctx):
 
         heads = [("Final exam: how well each model ranks planets", a_out(f, f_misses)),
                  ("Final exam: what the neural network misses",
-                  a_in(f, f_misses) * a_out(f, f_retrain)),
+                  a_in(f, f_misses) * a_out(f, f_learned - 0.005)),
+                 ("The network learned from only part of the data",
+                  a_in(f, f_learned) * a_out(f, f_retrain)),
                  ("Retrained: practice groups (development folds)", a_in(f, f_retrain))]
         for text, a in heads:
             if a > 0:

@@ -182,7 +182,11 @@ def extract_numbers(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"expected 3 next steps in docs/evaluation.md, found {len(bullets)}")
     doc_steps = [_short_step(b) for b in bullets]
     put("next_steps_doc", doc_steps, "docs/evaluation.md")
-    put("next_steps", [PLAIN_STEPS[s] for s in doc_steps], "docs/evaluation.md")
+    put(
+        "next_steps",
+        [PLAIN_STEPS[s] for s in doc_steps],
+        "docs/evaluation.md (plain wording, video/extract_data.py PLAIN_STEPS)",
+    )
 
     # the false positives the CNN accepts at its operating point, and how many of them carry
     # the centroid-offset flag (light from a nearby star)
