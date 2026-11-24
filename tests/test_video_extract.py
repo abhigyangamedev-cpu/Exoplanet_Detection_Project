@@ -18,10 +18,12 @@ from extract_data import (  # noqa: E402
     error_breakdown,
     extract_numbers,
     extract_star,
+    kepler_name,
     markdown_tables,
     pick_examples,
     pr_curves,
     splits_sample,
+    transit_depth,
 )
 
 CACHE = Path("C:/kepler_cache")
@@ -169,6 +171,27 @@ def test_splits_sample(config):
     assert any(s["partition"] == "test" for s in sample)
 
 
+def test_transit_depth_is_the_median_dip_at_mid_transit():
+    phase = np.linspace(-1.0, 1.0, 2001)                     # days
+    flux = np.where(np.abs(phase) < 0.05, 0.984, 1.0)        # a 1.6% box, 0.1 d long
+    assert transit_depth(phase, flux, 0.1) == pytest.approx(0.016)
+    with pytest.raises(ValueError):
+        transit_depth(np.array([0.5, 0.9]), np.array([1.0, 1.0]), 0.1)
+
+
+def test_kepler_name_from_the_catalogue_row(config):
+    import pandas as pd
+
+    from exoplanet.data.catalogue import load_koi_catalogue
+
+    catalogue = load_koi_catalogue(config)
+    row = catalogue[catalogue["kepoi_name"] == "K00020.01"].iloc[0]
+    assert kepler_name(row) == "Kepler-12 b"
+    binary = catalogue[catalogue["kepoi_name"] == "K06252.01"].iloc[0]
+    assert kepler_name(binary) == ""                         # a false positive has no name
+    assert kepler_name(pd.Series({"kepler_name": float("nan")})) == ""
+
+
 def test_extract_star_missing_raises_with_id(config):
     with pytest.raises(LookupError, match="K99999.99"):
         extract_star("K99999.99", config)
@@ -192,6 +215,12 @@ def test_extract_star_shapes(config):
     assert np.isfinite(s["detrended_flux"]).all()
     assert np.all(np.diff(s["time"]) > 0)
     assert str(s["koi_name"]) == planet and 3 <= float(s["period"]) <= 15
+    # the one depth scenes 1 and 2 show, and the confirmed planet's catalogue name
+    assert float(s["depth"]) == pytest.approx(
+        transit_depth(s["phase"], s["detrended_flux"], float(s["duration_hours"]) / 24))
+    assert 0.005 < float(s["depth"]) < 0.05
+    assert str(s["kepler_name"]) == "Kepler-12 b"            # K00020.01 in the KOI catalogue
+    assert str(s["kepler_name_source"]).endswith(".csv")
     # Re-running the pipeline step by step reproduces the saved CNN input exactly.
     with np.load(config["paths"]["views_dir"] / f"{int(s['kepid'])}.npz") as saved:
         i = list(saved["kepoi_name"]).index(planet)

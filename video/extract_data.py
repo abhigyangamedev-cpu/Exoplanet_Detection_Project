@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from exoplanet.config import REPO_ROOT, load_config
-from exoplanet.data.catalogue import load_koi_catalogue
+from exoplanet.data.catalogue import catalogue_path, load_koi_catalogue
 from exoplanet.data.labels import LABEL, label_catalogue
 from exoplanet.data.lightcurves import (
     complete_cache_files,
@@ -305,6 +305,23 @@ def _koi_row(koi_name: str, catalogue: pd.DataFrame) -> pd.Series:
     return rows.iloc[0]
 
 
+def kepler_name(row: pd.Series) -> str:
+    """The confirmed planet's catalogue name (``kepler_name``, e.g. "Kepler-12 b"), else ""."""
+    value = row.get("kepler_name")
+    return str(value).strip() if isinstance(value, str) and value.strip() else ""
+
+
+def transit_depth(phase_days: np.ndarray, flux: np.ndarray, duration_days: float) -> float:
+    """Fractional transit depth: 1 - median flux within 10% of the duration of mid-transit.
+
+    The one depth the video shows for a star (scenes 1 and 2 read it from the star npz).
+    """
+    core = np.abs(np.asarray(phase_days, float)) < 0.1 * duration_days
+    if not core.any():
+        raise ValueError("no points near mid-transit to measure the depth")
+    return float(1.0 - np.median(np.asarray(flux, float)[core]))
+
+
 def extract_star(koi_name: str, config: dict[str, Any]) -> dict[str, np.ndarray]:
     """Run one KOI's light curve through the view pipeline step by step, keeping each stage.
 
@@ -312,7 +329,9 @@ def extract_star(koi_name: str, config: dict[str, Any]) -> dict[str, np.ndarray]
     ``kept`` share one time axis (stitch order). ``detrended_flux`` and ``phase`` hold the
     points that survive detrending and outlier clipping (``time[kept]``). ``trend`` is NaN on
     segments the detrender drops. Steps and parameters follow
-    ``exoplanet.features.lightcurve.process_star``.
+    ``exoplanet.features.lightcurve.process_star``. Scalars: ``depth`` (``transit_depth``),
+    ``kepler_name`` (the catalogue's confirmed-planet name, "" if none) and its source file
+    ``kepler_name_source``.
     """
     catalogue = load_koi_catalogue(config)
     row = _koi_row(koi_name, catalogue)
@@ -355,6 +374,7 @@ def extract_star(koi_name: str, config: dict[str, Any]) -> dict[str, np.ndarray]
     kept[np.flatnonzero(retained)[keep]] = True
 
     final_t, final_f = dt_time[keep], dt_flux[keep]
+    star_phase = phase(final_t, target.period, target.epoch)
     views = make_views(
         final_t,
         final_f,
@@ -372,12 +392,19 @@ def extract_star(koi_name: str, config: dict[str, Any]) -> dict[str, np.ndarray]
         "trend": trend,
         "kept": kept,
         "detrended_flux": final_f,
-        "phase": phase(final_t, target.period, target.epoch),
+        "phase": star_phase,
+        "depth": np.array(transit_depth(star_phase, final_f, target.duration)),
         "global_view": views.global_view,
         "local_view": views.local_view,
         "secondary_view": views.secondary_view,
         "kepid": np.array(kepid),
         "koi_name": np.array(koi_name),
+        "kepler_name": np.array(kepler_name(row)),
+        "kepler_name_source": np.array(
+            catalogue_path(config).relative_to(REPO_ROOT).as_posix()
+            if catalogue_path(config).is_relative_to(REPO_ROOT)
+            else catalogue_path(config).name
+        ),
         "period": np.array(target.period),
         "epoch": np.array(target.epoch),
         "duration_hours": np.array(target.duration * 24),
