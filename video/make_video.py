@@ -236,7 +236,7 @@ def build(scene_ids: list[str], *, draft: bool, voice: str, n_workers: int) -> l
         else:
             jobs.append(RenderJob(scene_id, draft, out, key))
     w, h, fps = resolution
-    workers = f", {min(n_workers, len(jobs))} worker processes" if jobs else ""
+    workers = f", parallel workers: {min(n_workers, len(jobs))}" if jobs else ""
     print(f"Rendering {len(jobs)} of {len(scene_ids)} scene clips at {w}x{h}, {fps} fps"
           f"{workers}", flush=True)
     run_jobs(jobs, n_workers)
