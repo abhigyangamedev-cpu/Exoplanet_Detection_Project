@@ -274,6 +274,22 @@ def build(scene_ids: list[str], *, draft: bool, voice: str, n_workers: int) -> l
     return clips
 
 
+def unmatched_report(scene_ids: list[str], draft: bool) -> str:
+    """A warning listing, per scene, the narrated phrases its reveals are timed to that the
+    captions no longer contain (those reveals fell back to a default time); "" if none."""
+    import scenes
+    lines = []
+    for scene_id in scene_ids:
+        ctx = engine.make_context(scene_id, draft=draft)
+        missing = scenes.unmatched_phrases(ctx, scenes.import_scene(scene_id).build)
+        if missing:
+            lines.append(f"  {scene_id}: " + ", ".join(repr(p) for p in missing))
+    if not lines:
+        return ""
+    return ("\nWARNING: these narrated phrases were not found in the captions, so their reveals "
+            "use a default time\n(was video/narration.md reworded?):\n" + "\n".join(lines))
+
+
 def summary(draft: bool, out: Path, total: float) -> str:
     lines = ["", "Scene            seconds"]
     for scene_id in SCENE_IDS:
@@ -325,6 +341,7 @@ def main(argv: list[str] | None = None) -> None:
         print("\nScene clips:")
         for clip in clips:
             print(f"  {clip}")
+        print(unmatched_report(selected, args.draft) or "All timed phrases found.")
         return
 
     out = DRAFT_OUTPUT if args.draft else OUTPUT
@@ -332,6 +349,7 @@ def main(argv: list[str] | None = None) -> None:
     total = engine.concat(clips, out)
     print(summary(args.draft, out, total))
     print(f"Build time       {mmss(time.perf_counter() - start)}")
+    print(unmatched_report(selected, args.draft) or "All timed phrases found.")
     check_length(total)
 
 

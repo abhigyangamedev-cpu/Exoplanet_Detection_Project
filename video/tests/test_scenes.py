@@ -101,9 +101,33 @@ def test_cue_fraction_places_phrases_in_their_cue():
     # "delta" starts at character 6 of 11 in a 6 s cue
     assert scenes.cue_fraction(ctx, "delta", 0.5) == pytest.approx((4.0 + 6 * 6 / 11) / 11.0)
     assert scenes.cue_fraction(ctx, "missing", 0.5) == 0.5
+    # a phrase split across two cues is found, timed at its start in the first cue
+    assert scenes.cue_fraction(ctx, "beta gamma", 0.5) == pytest.approx((6 * 4 / 10) / 11.0)
     # a duration override shorter than the audio scales the cues down instead of past 1
     ctx.duration = 5.0
     assert scenes.cue_fraction(ctx, "gamma", 0.5) == pytest.approx(0.4)
+
+
+def test_cue_fraction_records_phrases_it_cannot_find():
+    ctx = engine.Context(scene_id="98_x", duration=11.0, fps=15, width=960, height=540,
+                         numbers={}, data_dir=engine.DATA_DIR, credits={},
+                         cues=[(0.0, 4.0, "alpha beta")])
+
+    def build(c):
+        scenes.cue_fraction(c, "alpha", 0.5)
+        scenes.cue_fraction(c, "The gap", 0.5)
+        scenes.cue_fraction(c, "The gap", 0.5)
+
+    assert scenes.unmatched_phrases(ctx, build) == ["The gap"]       # once, found ones not
+    ctx.cues = []                                                    # no captions: no noise
+    assert scenes.unmatched_phrases(ctx, build) == []
+
+
+@needs_data
+@pytest.mark.parametrize("scene_id", SCENE_IDS)
+def test_every_timed_phrase_is_in_the_narration(scene_id):
+    ctx = make_ctx(scene_id, draft=True)
+    assert scenes.unmatched_phrases(ctx, scene_module(scene_id).build) == []
 
 
 # --- 01_hook ----------------------------------------------------------------------------

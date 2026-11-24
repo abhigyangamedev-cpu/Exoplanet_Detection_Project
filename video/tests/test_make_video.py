@@ -225,6 +225,29 @@ def test_credits_too_long_for_the_end_card_stop_the_build_naming_the_field(credi
     assert "BUILD STOPPED" in str(error.code) and "Shorten 'team'" in str(error.code)
 
 
+def test_unmatched_report_lists_missing_phrases_per_scene(monkeypatch):
+    import engine
+    import types
+
+    def fake_ctx(scene_id, draft=False):
+        return engine.Context(scene_id=scene_id, duration=5.0, fps=15, width=960, height=540,
+                              numbers={}, data_dir=engine.DATA_DIR, credits={},
+                              cues=[(0.0, 5.0, "We use real signals.")])
+
+    def fake_scene(phrases):
+        module = types.ModuleType("fake")
+        module.build = lambda ctx: [scenes.cue_fraction(ctx, p, 0.1) for p in phrases]
+        return module
+
+    modules = {"01_hook": fake_scene(["We use"]), "08_results": fake_scene(["The gap", "We"])}
+    monkeypatch.setattr(engine, "make_context", fake_ctx)
+    monkeypatch.setattr(scenes, "import_scene", lambda s: modules[s])
+    report = make_video.unmatched_report(["01_hook", "08_results"], draft=True)
+    assert "WARNING" in report and "08_results: 'The gap'" in report
+    assert "01_hook" not in report
+    assert make_video.unmatched_report(["01_hook"], draft=True) == ""
+
+
 def test_make_video_does_not_import_the_project_package():
     code = ("import sys; sys.path.insert(0, sys.argv[1]); import make_video; "
             "print(sorted(m for m in sys.modules if m.split('.')[0] in "
