@@ -41,6 +41,10 @@ not changed are reused, so a second run is much faster. `--jobs N` sets how many
 render at once (default: half the CPU cores); use `--jobs 2` if you need the laptop
 meanwhile.
 
+- To force every scene to render again, delete the folder `video/build/clips`.
+- Re-running `extract_data.py` re-renders every clip, even if no result changed: it re-runs
+  the test suite for the scene 7 terminal, and its timing line is part of the scene data.
+
 ## Change the script
 
 1. Edit `video/narration.md`. Each `## 04_leakage` heading starts one scene's text. Text
@@ -70,8 +74,16 @@ Edit `video/credits.json`:
 }
 ```
 
-The names appear on the title card (scene 1) and the end card (scene 10). Leave `team`
-as `[]` or a field as `""` to leave it out. Then run the build again.
+The title card (scene 1) shows only `title` and `name`; the end card (scene 10) shows
+all of them: name, team, institution and guide. Leave `team` as `[]` or a field as `""` to
+leave it out. Then run the build again. If the credits are too long for the end card, the
+build shrinks them a little; if they still do not fit, it stops and names the field to
+shorten.
+
+While `name`, `institution` or `guide` still hold the shipped placeholders ("Your Name",
+"Institution", "Guide Name"), a draft build prints a loud warning, and the final build
+stops before rendering anything, naming the fields. To render the final video with them
+anyway (for a test), add `--allow-placeholder-credits`.
 
 ## Change the voice
 

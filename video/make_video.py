@@ -1,8 +1,11 @@
 """Build the whole explainer video with one command (video env, from the repo root):
 
     C:\\video_env\\Scripts\\python video/make_video.py [--draft] [--scenes 4,5] [--voice NAME] [--jobs N]
+        [--allow-placeholder-credits]
 
-Steps: check video/build/data exists; synthesize each scene's narration (cached, so only
+Steps: check the credits (a final build stops while credits.json holds the shipped
+placeholder names, unless --allow-placeholder-credits; a draft warns); check
+video/build/data exists; synthesize each scene's narration (cached, so only
 changed scenes go online); render the scene clips in parallel worker processes, reusing a
 clip whose inputs have not changed; join them in SCENE_IDS order; check the total length is
 within 3:45-4:30; print a summary.
@@ -74,6 +77,34 @@ def check_length(total_seconds: float) -> None:
         "then run the build again.\nThe video file was still written so you can watch it.\n"
         + "!" * 72
     )
+
+
+# the values video/credits.json ships with; the final video must not show them
+PLACEHOLDER_CREDITS = {"name": "Your Name", "institution": "Institution", "guide": "Guide Name"}
+
+
+def placeholder_fields(credits: dict) -> list[str]:
+    """Credit fields that still hold their shipped placeholder value."""
+    return [key for key, value in PLACEHOLDER_CREDITS.items()
+            if str(credits.get(key) or "").strip() == value]
+
+
+def check_credits(credits: dict, *, draft: bool, allow_placeholders: bool,
+                  path: Path | str = "video/credits.json") -> None:
+    """Warn (draft, or allow_placeholders) or exit (final build) while placeholders remain."""
+    fields = placeholder_fields(credits)
+    if not fields:
+        return
+    listed = ", ".join(f"{k} = {PLACEHOLDER_CREDITS[k]!r}" for k in fields)
+    message = (f"PLACEHOLDER CREDITS in {path}: {listed}.\n"
+               "Put the real names in that file before the final render.")
+    if draft or allow_placeholders:
+        print("\n" + "!" * 72 + f"\nWARNING: {message}\n" + "!" * 72 + "\n", flush=True)
+        return
+    raise SystemExit(
+        "\n" + "!" * 72 + f"\nBUILD STOPPED: {message}\n"
+        "Nothing was rendered. To render the final video with them anyway, add "
+        "--allow-placeholder-credits.\n" + "!" * 72)
 
 
 def parse_scenes(spec: str) -> list[str]:
@@ -264,6 +295,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="edge-tts voice (default: credits.json 'voice')")
     parser.add_argument("--jobs", type=int, default=default_jobs(),
                         help=f"parallel render processes (default {default_jobs()})")
+    parser.add_argument("--allow-placeholder-credits", action="store_true",
+                        help="render the final video even though credits.json still holds "
+                             "the placeholder names (warns instead of stopping)")
     args = parser.parse_args(argv)
     try:
         selected = parse_scenes(args.scenes) if args.scenes else list(SCENE_IDS)
@@ -271,6 +305,8 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(str(e))
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
+    check_credits(credits, draft=args.draft, allow_placeholders=args.allow_placeholder_credits,
+                  path=engine.CREDITS)
 
     if not (DATA_DIR / "numbers.json").exists():
         raise SystemExit(f"{DATA_DIR} is missing. Create it first (project env, repo root):\n"

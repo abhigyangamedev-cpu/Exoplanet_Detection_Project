@@ -153,6 +153,70 @@ def test_a_failing_scene_fails_the_build_with_its_id_and_traceback(tmp_path):
     assert not (tmp_path / "99.key").exists()
 
 
+SHIPPED_CREDITS = {"title": "Kepler Exoplanet Transit Detection", "name": "Your Name",
+                   "team": [], "institution": "Institution", "guide": "Guide Name",
+                   "voice": "en-IN-NeerjaNeural"}
+
+
+def test_placeholder_fields_names_only_the_unchanged_ones():
+    assert make_video.placeholder_fields(SHIPPED_CREDITS) == ["name", "institution", "guide"]
+    real = {**SHIPPED_CREDITS, "name": "A. Student", "guide": "Dr. B"}
+    assert make_video.placeholder_fields(real) == ["institution"]
+    assert make_video.placeholder_fields({**real, "institution": ""}) == []
+
+
+@pytest.fixture
+def credits_run(tmp_path, monkeypatch):
+    """Run make_video.main with these credits; returns (rendered?, exit error or None)."""
+    import json
+
+    def run(credits, *flags):
+        path = tmp_path / "credits.json"
+        path.write_text(json.dumps(credits), encoding="utf-8")
+        monkeypatch.setattr(make_video.engine, "CREDITS", path)
+        built = []
+        monkeypatch.setattr(make_video, "build", lambda *a, **k: built.append(k) or [])
+        try:
+            make_video.main(["--scenes", "1", *flags])
+        except SystemExit as e:
+            return bool(built), e
+        return bool(built), None
+
+    return run
+
+
+def test_draft_build_with_placeholder_credits_warns_and_continues(credits_run, capsys):
+    rendered, error = credits_run(SHIPPED_CREDITS, "--draft")
+    assert rendered and error is None
+    out = capsys.readouterr().out
+    assert "WARNING: PLACEHOLDER CREDITS" in out
+    assert "name = 'Your Name'" in out and "credits.json" in out
+
+
+def test_final_build_with_placeholder_credits_stops_before_rendering(credits_run):
+    rendered, error = credits_run(SHIPPED_CREDITS)
+    assert not rendered and error is not None
+    message = str(error.code)
+    assert "BUILD STOPPED" in message and "credits.json" in message
+    for field in ("name = 'Your Name'", "institution = 'Institution'", "guide = 'Guide Name'"):
+        assert field in message
+    assert "--allow-placeholder-credits" in message
+
+
+def test_final_build_with_the_override_warns_and_continues(credits_run, capsys):
+    rendered, error = credits_run(SHIPPED_CREDITS, "--allow-placeholder-credits")
+    assert rendered and error is None
+    assert "WARNING: PLACEHOLDER CREDITS" in capsys.readouterr().out
+
+
+def test_final_build_with_real_credits_runs_without_a_warning(credits_run, capsys):
+    real = {**SHIPPED_CREDITS, "name": "A. Student", "institution": "A School",
+            "guide": "Dr. B"}
+    rendered, error = credits_run(real)
+    assert rendered and error is None
+    assert "PLACEHOLDER" not in capsys.readouterr().out
+
+
 def test_make_video_does_not_import_the_project_package():
     code = ("import sys; sys.path.insert(0, sys.argv[1]); import make_video; "
             "print(sorted(m for m in sys.modules if m.split('.')[0] in "
