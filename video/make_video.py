@@ -307,6 +307,11 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--jobs must be at least 1")
     check_credits(credits, draft=args.draft, allow_placeholders=args.allow_placeholder_credits,
                   path=engine.CREDITS)
+    from scenes.s10_end import CreditsTooLong, card_layout
+    try:                                    # fail now, not after minutes of rendering
+        card_layout(credits)
+    except CreditsTooLong as e:
+        raise SystemExit(f"BUILD STOPPED: {e}") from None
 
     if not (DATA_DIR / "numbers.json").exists():
         raise SystemExit(f"{DATA_DIR} is missing. Create it first (project env, repo root):\n"

@@ -993,6 +993,39 @@ def test_end_renders_the_credits_file_and_fits():
     assert_fits_and_no_overlap(fig, renderer, texts)
 
 
+LONG_CREDITS = {**FULL_CREDITS,
+                "team": FULL_CREDITS["team"] + ["Nnnnnnnn Oooooooooooooo"],         # five
+                "institution": "Department of Physics and Astronomy, School of Natural "
+                               "Sciences, Kkkkkkkkkkk University of Science and Technology, "
+                               "Ppppppppppp Campus, Qqqqqqq Road, Rrrrrrrrrr 400001",
+                "guide": "Prof. Llllllll Mmmmmmmmmmmmmm, Department of Physics and Astronomy"}
+
+
+@needs_data
+@pytest.mark.parametrize("width,height", [(960, 540), (1920, 1080)])
+def test_end_shrinks_long_credits_to_fit(width, height):
+    end = scene_module("10_end")
+    assert end.card_layout(FULL_CREDITS)["scale"] == 1.0         # no shrink when it fits
+    lay = end.card_layout(LONG_CREDITS)
+    assert end.MIN_SCALE <= lay["scale"] < 1.0                   # shrunk, still readable
+    fig, renderer, texts = end_frame_texts(LONG_CREDITS, width, height)
+    joined = " ".join(" ".join(a.get_text() for a in texts).split())
+    assert LONG_CREDITS["institution"] in joined and LONG_CREDITS["guide"] in joined
+    assert all(m in joined for m in LONG_CREDITS["team"])
+    assert "Data: NASA Kepler mission, NASA Exoplanet Archive, MAST" in joined
+    assert_fits_and_no_overlap(fig, renderer, texts)
+
+
+def test_end_refuses_credits_that_cannot_fit_and_names_the_field():
+    end = scene_module("10_end")
+    absurd = {**FULL_CREDITS, "team": [f"Member Number {i:02d}" for i in range(30)]}
+    with pytest.raises(end.CreditsTooLong, match="Shorten 'team'"):
+        end.card_layout(absurd)
+    wide = {**FULL_CREDITS, "name": "W" * 120}
+    with pytest.raises(end.CreditsTooLong, match="Shorten 'name'"):
+        end.card_layout(wide)
+
+
 @needs_data
 def test_end_omits_empty_fields_without_a_gap():
     sparse = {**FULL_CREDITS, "team": [], "guide": "", "institution": ""}

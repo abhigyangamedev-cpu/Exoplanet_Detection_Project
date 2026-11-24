@@ -217,6 +217,14 @@ def test_final_build_with_real_credits_runs_without_a_warning(credits_run, capsy
     assert "PLACEHOLDER" not in capsys.readouterr().out
 
 
+def test_credits_too_long_for_the_end_card_stop_the_build_naming_the_field(credits_run):
+    real = {**SHIPPED_CREDITS, "name": "A. Student", "institution": "A School",
+            "guide": "Dr. B", "team": [f"Member Number {i:02d}" for i in range(30)]}
+    rendered, error = credits_run(real, "--draft")
+    assert not rendered and error is not None
+    assert "BUILD STOPPED" in str(error.code) and "Shorten 'team'" in str(error.code)
+
+
 def test_make_video_does_not_import_the_project_package():
     code = ("import sys; sys.path.insert(0, sys.argv[1]); import make_video; "
             "print(sorted(m for m in sys.modules if m.split('.')[0] in "

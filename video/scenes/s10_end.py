@@ -60,22 +60,34 @@ def team_lines(team: list[str]) -> str:
     return "with " + "\n".join(rows) if rows else ""
 
 
-def credit_stack(credits: dict) -> list[tuple[str, float, str, str]]:
-    """The credit lines under the title as (text, size, colour, weight); empty ones left out."""
+MIN_SCALE = 0.7                     # credits shrink to at most 70%: names at 22.4 pt, rest 15.4
+SCALE_STEP = 0.05
+MAX_LINE_W = 15.0                   # inches: no credit line wider than this
+
+
+class CreditsTooLong(ValueError):
+    """The end card cannot fit the credits even at the smallest readable size."""
+
+
+def credit_stack(credits: dict, scale: float = 1.0) -> list[tuple[str, float, str, str, str]]:
+    """The credit lines under the title as (text, size, colour, weight, field); empty ones
+    left out. scale shrinks the credit sizes (the title keeps its size)."""
     def field(key):
         value = credits.get(key) or ""
         return value.strip() if isinstance(value, str) else value
 
+    name_size, credit_size = NAME_SIZE * scale, CREDIT_SIZE * scale
     stack = []
     if field("name"):
-        stack.append((field("name"), NAME_SIZE, style.FG, "semibold"))
+        stack.append((field("name"), name_size, style.FG, "semibold", "name"))
     if team_lines(credits.get("team") or []):
-        stack.append((team_lines(credits["team"]), CREDIT_SIZE, style.FG, "normal"))
+        stack.append((team_lines(credits["team"]), credit_size, style.FG, "normal", "team"))
     if field("institution"):
         stack.append((textwrap.fill(field("institution"), INSTITUTION_WRAP,
-                                    break_on_hyphens=False), CREDIT_SIZE, style.MUTED, "normal"))
+                                    break_on_hyphens=False), credit_size, style.MUTED, "normal",
+                      "institution"))
     if field("guide"):
-        stack.append((f"Guide: {field('guide')}", CREDIT_SIZE, style.MUTED, "normal"))
+        stack.append((f"Guide: {field('guide')}", credit_size, style.MUTED, "normal", "guide"))
     return stack
 
 
@@ -84,25 +96,55 @@ def _height(text: str, size: float) -> float:
     return size / 72 * (1 + LINESPACING * text.count("\n")) * 1.1
 
 
-def card_layout(credits: dict) -> dict:
-    """Top y of every block (title, credit lines, tools label, data line) and the chips'
-    centre y, the column centred vertically in the area above the caption band."""
+def _column(credits: dict, scale: float):
+    """The column laid out downward from y = 0: (credit blocks, tools label, chips, data,
+    bottom), the blocks as (y, text, size, colour, weight, field)."""
     chip_h = CHIP_SIZE / 72 * 1.1 + 2 * CHIP_PAD
-    # lay out downward from y = 0, then shift the column into place
     y = -_height("x", style.TITLE_SIZE)
     stack = []
-    for text, size, colour, weight in credit_stack(credits):
+    for text, size, colour, weight, key in credit_stack(credits, scale):
         y -= GAP if stack else TITLE_GAP
-        stack.append((y, text, size, colour, weight))
+        stack.append((y, text, size, colour, weight, key))
         y -= _height(text, size)
     y -= SECTION_GAP
     tools_label = y
     y -= _height("x", CREDIT_SIZE) + GAP
     chips = y - chip_h / 2
     data = y - chip_h - GAP
-    bottom = data - _height("x", DATA_SIZE)
+    return stack, tools_label, chips, data, data - _height("x", DATA_SIZE)
+
+
+def _too_wide(stack) -> list[str]:
+    return [key for _, text, size, _, weight, key in stack
+            if max(text_width(line, size, weight) for line in text.split("\n")) > MAX_LINE_W]
+
+
+def card_layout(credits: dict) -> dict:
+    """Top y of every block (title, credit lines, tools label, data line) and the chips'
+    centre y, the column centred vertically in the area above the caption band.
+
+    Credits too tall (or too wide) for the card are shrunk in steps of SCALE_STEP down to
+    MIN_SCALE; if they still do not fit, CreditsTooLong names the field to shorten.
+    """
+    scale = 1.0
+    while True:
+        stack, tools_label, chips, data, bottom = _column(credits, scale)
+        wide = _too_wide(stack)
+        if -bottom <= AREA_TOP - AREA_BOTTOM and not wide:
+            break
+        if scale - SCALE_STEP < MIN_SCALE - 1e-9:
+            if wide:
+                key = wide[0]
+                why = "a line is too wide"
+            else:
+                key = max(stack, key=lambda s: _height(s[1], s[2]))[5] if stack else "title"
+                why = "the credits are too tall"
+            raise CreditsTooLong(
+                f"video/credits.json: the end card cannot fit the credits ({why}, even at "
+                f"{MIN_SCALE:.0%} size). Shorten {key!r}.")
+        scale = round(scale - SCALE_STEP, 4)
     top = min(AREA_TOP, (AREA_TOP + AREA_BOTTOM - bottom) / 2)
-    return {"title": top, "stack": [(top + s[0], *s[1:]) for s in stack],
+    return {"title": top, "stack": [(top + s[0], *s[1:5]) for s in stack], "scale": scale,
             "tools_label": top + tools_label, "chips": top + chips, "data": top + data}
 
 
