@@ -5,6 +5,7 @@ The demo scene lives here, not in video/scenes/: it is registered in sys.modules
 """
 
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -311,6 +312,54 @@ def test_concat_sums_durations(tmp_path, demo_scene):
     onsets = beep_onsets(out)
     assert len(onsets) == len(lengths)
     assert np.max(np.abs(np.array(onsets) - clip_starts)) < 0.005
+
+
+def volumedetect(path):
+    """(mean, max) volume in dB of a file's audio, from ffmpeg's volumedetect."""
+    err = subprocess.run([engine.FFMPEG, "-hide_banner", "-nostats", "-i", str(path), "-map",
+                          "0:a:0", "-af", "volumedetect", "-f", "null", "-"],
+                         capture_output=True, check=True).stderr.decode(errors="replace")
+    mean = float(re.search(r"mean_volume: (-?[\d.]+) dB", err).group(1))
+    peak = float(re.search(r"max_volume: (-?[\d.]+) dB", err).group(1))
+    return mean, peak
+
+
+def quiet_speechlike_wav(path, seconds, rate=48000, level=0.08):
+    """A quiet, speech-like test signal: tones in short bursts with pauses, peak ~ -22 dBFS."""
+    t = np.arange(int(seconds * rate)) / rate
+    tone = np.sin(2 * np.pi * 220 * t) + 0.5 * np.sin(2 * np.pi * 660 * t)
+    bursts = (np.sin(2 * np.pi * 3 * t) > -0.2).astype(float)
+    samples = level * tone / 1.5 * bursts
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((samples * 32767).astype("<i2").tobytes())
+    return path
+
+
+def test_concat_brings_quiet_narration_to_a_hall_level(tmp_path, demo_scene):
+    clips = []
+    for i in range(2):
+        wav = quiet_speechlike_wav(tmp_path / f"q{i}.wav", 2.0)
+        clips.append(tmp_path / f"q{i}.mp4")
+        engine.render_scene(demo_scene, demo_context(2.0, 320, 180), wav, clips[-1])
+    before_mean, _ = volumedetect(clips[0])
+    assert before_mean < -30                              # the input really is quiet
+    out = tmp_path / "all.mp4"
+    total = engine.concat(clips, out)
+    mean, peak = volumedetect(out)
+    assert -24.0 < mean < -12.0, mean                     # about -16 LUFS for this signal
+    assert peak <= -0.5, peak                             # no clipping
+    video_s, audio_s = engine.media_durations(out)
+    assert abs(total - 4.0) < 0.1 and abs(audio_s - video_s) < 0.01
+
+
+def test_loudness_gain_leaves_silence_alone(tmp_path, demo_scene):
+    clip = tmp_path / "s.mp4"
+    engine.render_scene(demo_scene, demo_context(1.0, 320, 180),
+                        silent_wav(tmp_path / "s.wav", 1.0), clip)
+    assert engine.loudness_gain(["-i", str(clip)], "[0:a]", 1) == 0.0
 
 
 @pytest.mark.skipif(not (engine.DATA_DIR / "numbers.json").exists()

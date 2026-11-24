@@ -241,12 +241,40 @@ def media_durations(path: Path) -> tuple[float, float]:
     return nframes / fps, len(pcm) / 2 / SAMPLE_RATE
 
 
+TARGET_LUFS = -16.0        # integrated loudness of the joined video (a hall, laptop speakers)
+TARGET_PEAK_DB = -1.5      # true-peak ceiling, dBTP
+MAX_GAIN_DB = 20.0
+
+
+def loudness_gain(audio_inputs: list[str], joined: str, n: int) -> float:
+    """dB of plain gain that brings the joined audio to TARGET_LUFS without its true peak
+    passing TARGET_PEAK_DB, from ffmpeg's loudnorm measurement (EBU R128).
+
+    A single static gain changes no timing (unlike loudnorm's dynamic mode), so the audio
+    stays sample-aligned with the video. Silence gets no gain.
+    """
+    proc = subprocess.run(
+        [FFMPEG, "-hide_banner", "-nostats", *audio_inputs, "-filter_complex",
+         f"{joined}concat=n={n}:v=0:a=1,loudnorm=I={TARGET_LUFS}:TP={TARGET_PEAK_DB}"
+         ":print_format=json", "-f", "null", "-"],
+        capture_output=True, check=True,
+    )
+    err = proc.stderr.decode(errors="replace")
+    stats = json.loads(err[err.rindex("{"):err.rindex("}") + 1])
+    measured_i, measured_tp = float(stats["input_i"]), float(stats["input_tp"])
+    if not (np.isfinite(measured_i) and np.isfinite(measured_tp)) or measured_i < -70:
+        return 0.0
+    gain = min(TARGET_LUFS - measured_i, TARGET_PEAK_DB - measured_tp)
+    return float(np.clip(gain, -MAX_GAIN_DB, MAX_GAIN_DB))
+
+
 def concat(clips: list[Path], out_mp4: Path) -> float:
     """Join clips (same size and fps) into out_mp4; returns its length in seconds.
 
     Video packets are copied through the concat demuxer. Audio is decoded per clip and joined
     with the concat filter, then encoded once: the concat demuxer would keep each AAC
-    stream's 1024 priming samples and shift all audio 21 ms late.
+    stream's 1024 priming samples and shift all audio 21 ms late. The joined audio is
+    brought to about TARGET_LUFS by one measured gain (``loudness_gain``).
     """
     out_mp4 = Path(out_mp4)
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
@@ -255,14 +283,17 @@ def concat(clips: list[Path], out_mp4: Path) -> float:
     )
     audio_inputs = [arg for c in clips for arg in ("-i", str(c))]
     joined = "".join(f"[{i + 1}:a]" for i in range(len(clips)))
+    measure_joined = "".join(f"[{i}:a]" for i in range(len(clips)))
     part = out_mp4.with_name(out_mp4.stem + ".part.mp4")
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write(listing)
     try:
+        gain = loudness_gain(audio_inputs, measure_joined, len(clips))
         subprocess.run(
             [FFMPEG, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", f.name,
              *audio_inputs,
-             "-filter_complex", f"{joined}concat=n={len(clips)}:v=0:a=1[a]",
+             "-filter_complex",
+             f"{joined}concat=n={len(clips)}:v=0:a=1,volume={gain:.2f}dB[a]",
              "-map", "0:v", "-map", "[a]", "-c:v", "copy",
              "-c:a", "aac", "-b:a", "192k", "-ar", str(SAMPLE_RATE), "-ac", "2",
              "-movflags", "+faststart", str(part)],
