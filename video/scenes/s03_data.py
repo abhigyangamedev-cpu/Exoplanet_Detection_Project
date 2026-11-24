@@ -108,6 +108,12 @@ def build(ctx):
     f_five = cue_fraction(ctx, "five", 0.55)
     f_each = cue_fraction(ctx, "Each star", 0.65)
     f_recog = cue_fraction(ctx, "recognising", 0.82)
+    # each partition's counter has arrived as its number is spoken (the dots, a sample of
+    # stars, keep flying after)
+    f_n_test = cue_fraction(ctx, f"{n['n_test']:,}", f_locked + 0.01)
+    f_n_dev = cue_fraction(ctx, f"{n['n_dev']:,}", f_other + 0.02)
+    test_count = (f_locked - 0.03, max(f_n_test, f_locked))
+    dev_count = (f_other - 0.035, max(f_n_dev, f_other))
     test_span = (f_locked + 0.01, f_marked - 0.04)
     dev_span = (f_other + 0.01, max(f_five + 0.04, f_other + 0.12))
 
@@ -154,8 +160,7 @@ def build(ctx):
             ax.text(x0 + 0.25, y0 + h - 0.4, "final exam", ha="left", va="center",
                     size=style.BODY_SIZE, weight="semibold", color=style.C_ACCENT,
                     alpha=a_test)
-            arrived = (f >= depart + FLIGHT) & is_test
-            count = round(n["n_test"] * arrived.sum() / max(is_test.sum(), 1))
+            count = round(n["n_test"] * style.ease(style.progress(f, *test_count)))
             ax.text(x0 + 0.25, y0 + h - 0.95, f"{count:,} signals", ha="left", va="center",
                     size=style.LABEL_SIZE, color=style.FG, alpha=a_test)
             a_once = a_test * style.ease(style.progress(f, f_marked, f_marked + 0.04))
@@ -167,8 +172,7 @@ def build(ctx):
         # --- practice groups ---------------------------------------------------------------
         a_dev = style.ease(style.progress(f, f_other - 0.03, f_other + 0.02))
         if a_dev > 0:
-            arrived = (f >= depart + FLIGHT) & ~is_test
-            count = round(n["n_dev"] * arrived.sum() / max((~is_test).sum(), 1))
+            count = round(n["n_dev"] * style.ease(style.progress(f, *dev_count)))
             ax.text(FOLDS_X0, FOLDS_Y0 + FOLD_H + 0.42,
                     f"{count:,} signals, five practice groups", ha="left", va="center",
                     size=style.BODY_SIZE, color=style.FG, alpha=a_dev)

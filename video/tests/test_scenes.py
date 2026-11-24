@@ -279,6 +279,21 @@ def test_data_shows_real_split_counts():
     assert f"{ctx.numbers['n_dev']:,}" in texts
 
 
+@needs_data
+def test_data_counts_have_arrived_when_spoken_and_never_show_zero():
+    ctx = make_ctx("03_data", width=960, height=540)
+    draw = scene_module("03_data").build(ctx)
+    n = ctx.numbers
+    for key, label in (("n_test", "signals"), ("n_dev", "signals, five practice groups")):
+        number = f"{n[key]:,}"
+        t = scenes.cue_fraction(ctx, number, -1.0) * ctx.duration
+        assert t > 0, number
+        assert f"{number} {label}" in drawn_texts(draw, t + 0.25), number
+    for frac in np.linspace(0.0, 0.999, 120):
+        shown_texts = shown(draw, frac * ctx.duration)
+        assert not any(s.startswith("0 signals") for s in shown_texts), frac
+
+
 # --- 04_leakage ---------------------------------------------------------------------------
 
 VETTING = {"koi_score", "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec",
