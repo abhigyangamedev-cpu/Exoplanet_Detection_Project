@@ -160,6 +160,16 @@ def render_frame(draw: Draw, t: float, width: int, height: int,
     return np.array(_draw_frame(fig, draw, t, caption))
 
 
+def _close_pipe(stream) -> bool:
+    """Close a buffered pipe even if its last flush fails; True if it closed cleanly."""
+    try:
+        stream.close()
+        return True
+    except OSError:
+        stream.raw.close()  # the flush failed, so close() left the descriptor open
+        return False
+
+
 def render_scene(scene_id: str, ctx: Context, audio_wav: Path | None, out_mp4: Path) -> None:
     """Render scene ``scene_id`` to out_mp4: round(duration * fps) frames, audio muxed.
 
@@ -192,17 +202,27 @@ def render_scene(scene_id: str, ctx: Context, audio_wav: Path | None, out_mp4: P
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=err)
         try:
-            for t in times:
-                proc.stdin.write(_draw_frame(fig, draw, float(t), caption_at(ctx.cues, t)))
-            proc.stdin.close()
-        except BrokenPipeError:
-            pass  # ffmpeg exited early; its error is reported below
-        finally:
+            pipe_broken = False
+            try:
+                for t in times:
+                    proc.stdin.write(_draw_frame(fig, draw, float(t), caption_at(ctx.cues, t)))
+            except OSError:
+                # ffmpeg exited early (Windows raises EINVAL, not always BrokenPipeError);
+                # its own error message is reported below
+                pipe_broken = True
+            pipe_broken |= not _close_pipe(proc.stdin)
             code = proc.wait()
-        if code != 0:
+        except BaseException:
+            # the scene (or caption drawing) failed: stop ffmpeg, which is blocked on stdin
+            proc.kill()
+            _close_pipe(proc.stdin)
+            proc.wait()
+            part.unlink(missing_ok=True)
+            raise
+        if code != 0 or pipe_broken:
             err.seek(0)
             part.unlink(missing_ok=True)
-            message = err.read().decode(errors="replace")
+            message = err.read().decode(errors="replace").strip() or f"exit code {code}"
             raise RuntimeError(f"ffmpeg failed for {scene_id}: {message}")
     os.replace(part, out_mp4)
 
@@ -235,6 +255,7 @@ def concat(clips: list[Path], out_mp4: Path) -> float:
     )
     audio_inputs = [arg for c in clips for arg in ("-i", str(c))]
     joined = "".join(f"[{i + 1}:a]" for i in range(len(clips)))
+    part = out_mp4.with_name(out_mp4.stem + ".part.mp4")
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write(listing)
     try:
@@ -244,13 +265,15 @@ def concat(clips: list[Path], out_mp4: Path) -> float:
              "-filter_complex", f"{joined}concat=n={len(clips)}:v=0:a=1[a]",
              "-map", "0:v", "-map", "[a]", "-c:v", "copy",
              "-c:a", "aac", "-b:a", "192k", "-ar", str(SAMPLE_RATE), "-ac", "2",
-             "-movflags", "+faststart", str(out_mp4)],
+             "-movflags", "+faststart", str(part)],
             check=True, capture_output=True,
         )
     except subprocess.CalledProcessError as e:
+        part.unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg concat failed: {e.stderr.decode(errors='replace')}") from e
     finally:
         os.unlink(f.name)
+    os.replace(part, out_mp4)
     return media_durations(out_mp4)[0]
 
 

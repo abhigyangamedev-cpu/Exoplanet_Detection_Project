@@ -7,6 +7,7 @@ The demo scene lives here, not in video/scenes/: it is registered in sys.modules
 import json
 import subprocess
 import sys
+import threading
 import types
 import wave
 
@@ -206,6 +207,60 @@ def test_render_scene_length_follows_audio(tmp_path, demo_scene):
     assert frame_size(out) == (960, 540)
     nframes, _ = imageio_ffmpeg.count_frames_and_secs(str(out))
     assert nframes == round(2.0 * 15)
+
+
+def run_with_timeout(fn, seconds=60):
+    """Run fn in a daemon thread; return the exception it raised (None if none). A hang
+    fails the test instead of blocking the suite."""
+    outcome = {}
+
+    def target():
+        try:
+            fn()
+        except BaseException as e:  # noqa: BLE001 - handed back to the test
+            outcome["error"] = e
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    assert not thread.is_alive(), f"render still running after {seconds} s (hung)"
+    return outcome.get("error")
+
+
+def test_scene_error_is_raised_promptly_and_leaves_no_part_file(tmp_path, monkeypatch):
+    def build(ctx):
+        def draw(fig, t):
+            if t > 0.2:
+                raise ValueError("scene broke")
+        return draw
+
+    module = types.ModuleType("scenes.s97_raises")
+    module.build = build
+    monkeypatch.setitem(sys.modules, "scenes.s97_raises", module)
+    out = tmp_path / "bad.mp4"
+    error = run_with_timeout(lambda: engine.render_scene(
+        "97_raises", demo_context(2.0, 320, 180), silent_wav(tmp_path / "a.wav", 2.0), out))
+    assert isinstance(error, ValueError) and "scene broke" in str(error)
+    assert list(tmp_path.glob("*.mp4")) == []
+
+
+def test_ffmpeg_failure_reports_its_message_and_leaves_no_part_file(tmp_path, demo_scene):
+    out = tmp_path / "clip.mp4"
+    missing = tmp_path / "no_such_audio.wav"
+    error = run_with_timeout(lambda: engine.render_scene(
+        demo_scene, demo_context(2.0, 320, 180), missing, out))
+    assert isinstance(error, RuntimeError)
+    assert "no_such_audio.wav" in str(error)  # ffmpeg's own stderr, not a bare pipe error
+    assert list(tmp_path.glob("*.mp4")) == []
+
+
+def test_concat_failure_leaves_no_output(tmp_path):
+    bogus = tmp_path / "not_a_clip.mp4"
+    bogus.write_bytes(b"not a video")
+    out = tmp_path / "all.mp4"
+    with pytest.raises(RuntimeError, match="concat failed"):
+        engine.concat([bogus], out)
+    assert not out.exists() and list(tmp_path.glob("*.part.mp4")) == []
 
 
 def test_audio_longer_than_duration_is_trimmed(tmp_path, demo_scene):
