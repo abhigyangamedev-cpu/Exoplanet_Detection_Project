@@ -63,7 +63,7 @@ image-shift numbers, it scores {test_pr_auc.tabular_lc}. The neural network, rea
 light alone, scores {test_pr_auc.cnn}. It misses more faint and short-orbit planets.
 About half the false positives it lets through are light from a neighbouring star, which a light curve cannot reveal. It learned from only a fraction of the data.
 Retrained on all of it, it scores {dev_full_pr_auc.cnn_full} on the practice groups,
-against {dev_full_pr_auc.tabular_lc} for the matching catalogue model. The gap is closing.
+against {dev_full_pr_auc.tabular_lc} for the matching catalogue model. More data closed most of the gap.
 
 ## 09_meaning
 

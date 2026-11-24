@@ -805,7 +805,7 @@ def test_results_dev_scores_only_as_practice_groups():
     draw = scene_module("08_results").build(ctx)
     n = ctx.numbers
     dev = n["dev_full_pr_auc"]
-    at = cue_times(ctx, "It learned", "Retrained", "The gap")
+    at = cue_times(ctx, "It learned", "Retrained", "More data closed")
     dev_scores = {f"{dev[m][0]:.3f}" for m in ("cnn_full", "tabular_lc")}
 
     learned = shown(draw, at["It learned"] + 1.0)
@@ -820,7 +820,7 @@ def test_results_dev_scores_only_as_practice_groups():
             assert t > at["Retrained"]
             assert {"Practice groups (development folds)",
                     "practice groups (development folds)", "not the final exam"} <= shown(draw, t)
-    end = shown(draw, at["The gap"])
+    end = shown(draw, at["More data closed"])
     assert dev_scores <= end and "retrained on all of them" in end
     assert "Retrained: practice groups (development folds)" in end
 
