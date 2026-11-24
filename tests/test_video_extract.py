@@ -73,6 +73,57 @@ def test_text_fields(numbers):
     assert numbers["sources"]["next_steps"] == "docs/evaluation.md"
 
 
+def test_next_steps_are_plain_versions_of_the_documented_steps(numbers):
+    """On-screen wording is plain English; the doc's own clauses are kept beside it."""
+    docs = " ".join((REPO_ROOT / "docs" / "evaluation.md").read_text(encoding="utf-8").split())
+    assert numbers["next_steps_doc"] == [
+        "Combine cnn_full with the tabular model",
+        "Recover more low-SNR and short-period planets",
+        "Centroid-offset false positives need pixel-level information",
+    ]
+    assert all(
+        f"- {s}".replace("cnn_full", "`cnn_full`") in docs for s in numbers["next_steps_doc"]
+    )
+    assert numbers["next_steps"] == [
+        "Combine the two models",
+        "Find more faint and short-orbit planets",
+        "Use pixel images to catch light from neighbouring stars",
+    ]
+    assert numbers["sources"]["next_steps_doc"] == "docs/evaluation.md"
+
+
+def test_score_meaning_is_the_readme_sentence(numbers):
+    readme = " ".join((REPO_ROOT / "README.md").read_text(encoding="utf-8").split())
+    paragraph = readme.split("**What the scores mean.**", 1)[1]
+    assert numbers["score_meaning"] in paragraph[:400]
+    assert "not a planet detection" in numbers["score_meaning"]
+    assert numbers["score_meaning"].endswith(".")
+    assert numbers["sources"]["score_meaning"] == "README.md"
+
+
+def test_cnn_accepted_false_positives_by_centroid_flag(numbers):
+    """Of the test false positives the CNN accepts, how many carry the centroid-offset flag."""
+    test = json.loads((OUTPUTS / "evaluation_test.json").read_text(encoding="utf-8"))
+    assert numbers["cnn_fp_accepted"] == test["operating_points"]["cnn"]["fp"]
+    # docs/evaluation.md: "Ten of the 19 carry the centroid-offset flag"
+    assert (numbers["cnn_fp_accepted"], numbers["cnn_fp_accepted_centroid"]) == (19, 10)
+    for key in ("cnn_fp_accepted", "cnn_fp_accepted_centroid"):
+        assert numbers["sources"][key] == "outputs/evaluation_test.json"
+
+
+def test_cnn_training_set_sizes(numbers):
+    """The first CNN had views for only part of the development KOIs; cnn_full for nearly all."""
+    dev = json.loads((OUTPUTS / "evaluation_dev.json").read_text(encoding="utf-8"))
+    full = json.loads((OUTPUTS / "evaluation_dev_full.json").read_text(encoding="utf-8"))
+    assert numbers["n_dev_cnn"] == dev["n_kois"] == 1123
+    assert numbers["n_dev_cnn_full"] == full["n_kois"]
+    assert dev["n_total"] == full["n_total"] == numbers["n_dev"]
+    assert round(numbers["n_dev_cnn"] / numbers["n_dev"], 2) == 0.21  # README: "21%"
+    assert numbers["n_dev_cnn"] < numbers["n_dev_cnn_full"] <= numbers["n_dev"]
+    assert numbers["sources"]["n_dev_cnn"] == "outputs/evaluation_dev.json"
+    assert numbers["sources"]["n_dev_cnn_full"] == "outputs/evaluation_dev_full.json"
+
+
 def test_markdown_tables_parses_rows(tmp_path):
     md = tmp_path / "t.md"
     md.write_text("intro\n\n| a | b |\n|---|---|\n| x | 1 |\n| y | 2 |\n\ntext\n", encoding="utf-8")

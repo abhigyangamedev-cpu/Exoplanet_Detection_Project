@@ -99,6 +99,25 @@ def _short_step(bullet: str) -> str:
     return clause.replace("`", "").strip()
 
 
+# On-screen wording for each documented next step (docs/evaluation.md), in the narration's
+# plain words. Keyed by the doc's own clause so that a change to the doc fails loudly.
+PLAIN_STEPS = {
+    "Combine cnn_full with the tabular model": "Combine the two models",
+    "Recover more low-SNR and short-period planets": "Find more faint and short-orbit planets",
+    "Centroid-offset false positives need pixel-level information": (
+        "Use pixel images to catch light from neighbouring stars"
+    ),
+}
+
+
+def _accepted(n_false_positives: int, rejected_share: float) -> int:
+    """False positives scored above the threshold, from a saved count and rejected share."""
+    accepted = n_false_positives * (1.0 - rejected_share)
+    if abs(accepted - round(accepted)) > 1e-6:
+        raise ValueError(f"{n_false_positives} x (1 - {rejected_share}) is not a whole count")
+    return int(round(accepted))
+
+
 # --- numbers -----------------------------------------------------------------------------
 
 
@@ -161,7 +180,42 @@ def extract_numbers(config: dict[str, Any]) -> dict[str, Any]:
     bullets = [b.strip() for b in re.split(r"\n- ", "\n" + steps_text.strip()) if b.strip()]
     if len(bullets) != 3:
         raise ValueError(f"expected 3 next steps in docs/evaluation.md, found {len(bullets)}")
-    put("next_steps", [_short_step(b) for b in bullets], "docs/evaluation.md")
+    doc_steps = [_short_step(b) for b in bullets]
+    put("next_steps_doc", doc_steps, "docs/evaluation.md")
+    put("next_steps", [PLAIN_STEPS[s] for s in doc_steps], "docs/evaluation.md")
+
+    # the false positives the CNN accepts at its operating point, and how many of them carry
+    # the centroid-offset flag (light from a nearby star)
+    rel = f"{OUTPUTS}/evaluation_test.json"
+    test = json.loads(_read(rel))
+    rejected = test["fp_rejection"]
+    put("cnn_fp_accepted", int(test["operating_points"]["cnn"]["fp"]), rel)
+    if (
+        _accepted(rejected["all false positives"]["n"], rejected["all false positives"]["cnn"])
+        != n["cnn_fp_accepted"]
+    ):
+        raise ValueError(f"CNN false-positive counts in {rel} disagree")
+    centroid = rejected["centroid offset"]
+    put("cnn_fp_accepted_centroid", _accepted(centroid["n"], centroid["cnn"]), rel)
+
+    # development KOIs each CNN learned from: the first had views for only part of them
+    for key, rel in (
+        ("n_dev_cnn", f"{OUTPUTS}/evaluation_dev.json"),
+        ("n_dev_cnn_full", f"{OUTPUTS}/evaluation_dev_full.json"),
+    ):
+        saved = json.loads(_read(rel))
+        if saved["n_total"] != n["n_dev"]:
+            raise ValueError(f"{rel} covers {saved['n_total']} KOIs, expected {n['n_dev']}")
+        put(key, int(saved["n_kois"]), rel)
+
+    readme = re.sub(r"\s+", " ", _read("README.md"))
+    paragraph = readme.split("**What the scores mean.**", 1)[1].split("Interpretation", 1)[0]
+    sentence = next(
+        (s for s in re.split(r"(?<=\.) ", paragraph.strip()) if "not a planet detection" in s), None
+    )
+    if sentence is None:
+        raise LookupError("'What the scores mean' sentence not found in README.md")
+    put("score_meaning", sentence, "README.md")
 
     n["sources"] = sources
     return n
