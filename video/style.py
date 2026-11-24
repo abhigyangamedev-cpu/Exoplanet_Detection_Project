@@ -34,6 +34,9 @@ C_FALSE = "#ff8a3d"    # false positive (orange); blue/orange is colour-blind sa
 C_ACCENT = "#ffd166"   # highlights, commands, the one thing to look at
 C_WARN = "#ff4f6d"     # warnings only (the leaked score); never a class colour
 TERM_BG = "#0e1424"    # terminal window body
+# models (lines, bars and labels for a model's results; never a class colour)
+C_NET = "#c49bff"      # the neural network (lavender)
+C_TREES = "#6fdc9c"    # the decision-tree (catalogue) models (mint green)
 
 
 def _first_font(*names: str) -> str:
@@ -112,10 +115,10 @@ def progress(t: float, start: float, end: float) -> float:
     return min(max((t - start) / (end - start), 0.0), 1.0)
 
 
-def heading(fig: Figure, text: str, color: str = FG) -> None:
-    """The scene heading, top-left, in the same place in every scene."""
+def heading(fig: Figure, text: str, color: str = FG, alpha: float = 1.0) -> None:
+    """The scene heading, top-left, in the same place in every scene (alpha: cross-fades)."""
     fig.text(MARGIN, HEADING_Y, text, ha="left", va="top", size=HEADING_SIZE,
-             weight="semibold", color=color)
+             weight="semibold", color=color, alpha=alpha)
 
 
 # --- captions -------------------------------------------------------------------------

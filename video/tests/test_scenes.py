@@ -500,7 +500,11 @@ def test_integration_replays_the_real_captures_with_their_captions():
     tests = drawn_texts(draw, at("Building the views") - 0.3)
     summary = integ.summary_line(capture("pytest"))
     assert re.fullmatch(r"\d+ passed in [\d.]+s", summary)
-    assert tests.count(summary) == 2                     # in the terminal and called out
+    # called out beside the terminal; the terminal shows pytest's raw last line, which runs
+    # over a minute end with the wall time again, e.g. " (0:02:01)"
+    last = next(line for line in reversed(capture("pytest")) if line.strip()).strip()
+    assert tests.count(summary) + tests.count(last) == 2 and last.startswith(summary)
+    assert integ.summary_line(["", "5 passed in 61.2s (0:01:01)", ""]) == "5 passed in 61.2s"
     assert "> " + integ.CMD_PYTEST in tests
     assert all(line in tests for line in capture("make_report"))
 
@@ -516,3 +520,167 @@ def test_integration_replays_the_real_captures_with_their_captions():
     assert f"source: {ctx.numbers['sources']['cnn_full_train_time_text']}" in end
     assert any(integ.LOG_TRAIN in s for s in end)
     assert ctx.numbers["cnn_full_train_time_text"] not in drawn_texts(draw, at("Training"))
+
+
+# --- 08_results ---------------------------------------------------------------------------
+
+def cue_times(ctx, *phrases) -> dict[str, float]:
+    """Seconds at which each phrase is spoken; asserts every cue exists in the narration."""
+    at = {p: scenes.cue_fraction(ctx, p, -1.0) * ctx.duration for p in phrases}
+    assert all(t >= 0 for t in at.values()), at
+    return at
+
+
+def test_results_spread_labels_keeps_order_and_gap():
+    res = scene_module("08_results")
+    ys = np.array([0.754, 0.752, 0.643, 0.487])
+    out = res.spread_labels(ys, 0.06, 0.4, 0.97)
+    assert list(np.argsort(out)) == list(np.argsort(ys))          # same order as the lines
+    assert np.all(np.diff(np.sort(out)) >= 0.06 - 1e-9)
+    assert out[2] == pytest.approx(0.643, abs=0.03) and out[3] == pytest.approx(0.487)
+    assert np.allclose(res.spread_labels([0.5, 0.8], 0.06, 0.4, 0.97), [0.5, 0.8])
+    assert res.bin_label("0.558 - 5.58", False) == "0.6–5.6"
+    assert res.bin_label("51.4 - 4.3e+03", True) == "51+"
+
+
+@needs_data
+def test_results_scores_appear_as_narrated():
+    ctx = make_ctx("08_results", width=960, height=540)
+    draw = scene_module("08_results").build(ctx)
+    test = ctx.numbers["test_pr_auc"]
+    at = cue_times(ctx, "Without the image", "The neural network", "It misses", "About half")
+
+    def score(m):
+        return f"{test[m][0]:.3f}"
+
+    def interval(m):
+        return f"{test[m][1]:.3f}–{test[m][2]:.3f}"
+
+    first = shown(draw, at["Without the image"] - 0.3)
+    assert {score("tabular"), interval("tabular"), "all catalogue numbers"} <= first
+    assert score("tabular_lc") not in first and score("cnn") not in first
+    second = shown(draw, at["The neural network"] - 0.3)
+    assert {score("tabular_lc"), "without image-shift numbers"} <= second
+    assert score("cnn") not in second
+    # the table holds all four test models, named in plain words, until the false positives
+    table = shown(draw, at["About half"] - 0.4)
+    for m in ("tabular", "tabular_lc", "tabular_lc_sub", "cnn"):
+        assert {score(m), interval(m)} <= table, m
+    assert {"Decision trees", "Neural network", "same training signals as the network",
+            "Final exam (held-out test set)"} <= table
+    assert not any("development" in s for s in table)
+
+
+@needs_data
+def test_results_curves_are_the_test_curves_in_model_colours():
+    from matplotlib.colors import to_rgb
+    from matplotlib.lines import Line2D
+    ctx = make_ctx("08_results", width=960, height=540)
+    draw = scene_module("08_results").build(ctx)
+    pr = ctx.load("pr_curves.npz")
+    at = cue_times(ctx, "It misses", "Retrained")
+    fig = style.new_figure(960, 540)
+    draw(fig, at["It misses"] - 0.3)
+    lines = {ln.get_gid(): ln for ln in fig.findobj(Line2D) if ln.get_gid()}
+    assert set(lines) == {"pr_tabular", "pr_tabular_lc", "pr_cnn"}     # the narrated three
+    for m in ("tabular", "tabular_lc", "cnn"):
+        assert np.allclose(lines[f"pr_{m}"].get_ydata(), pr[f"precision_{m}"])
+    colours = {m: to_rgb(ln.get_color()) for m, ln in lines.items()}
+    assert colours["pr_cnn"] == to_rgb(style.C_NET)
+    assert colours["pr_tabular"] == colours["pr_tabular_lc"] == to_rgb(style.C_TREES)
+    assert not {to_rgb(style.C_PLANET), to_rgb(style.C_FALSE)} & set(colours.values())
+
+    fig = style.new_figure(960, 540)
+    draw(fig, ctx.duration - 0.01)
+    lines = {ln.get_gid(): ln for ln in fig.findobj(Line2D) if ln.get_gid()}
+    assert set(lines) == {"pr_cnn_full", "pr_tabular_lc"}
+    assert np.allclose(lines["pr_cnn_full"].get_ydata(), pr["precision_dev_cnn_full"])
+    assert np.allclose(lines["pr_tabular_lc"].get_ydata(), pr["precision_dev_tabular_lc"])
+
+
+@needs_data
+def test_results_recall_bars_and_neighbouring_star_share():
+    ctx = make_ctx("08_results", width=960, height=540)
+    draw = scene_module("08_results").build(ctx)
+    n = ctx.numbers
+    errors = ctx.load("error_breakdown.json")
+    at = cue_times(ctx, "About half", "which a light curve", "It learned")
+
+    fig = style.new_figure(960, 540)
+    draw(fig, at["About half"] - 0.2)
+    heights = [b.get_height() for b in fig.findobj(lambda a: a.get_gid() == "recall_bar")]
+    recalls = [b["recall"] for b in errors["by_snr"] + errors["by_period"]]
+    assert np.allclose(np.array(heights) / heights[0], np.array(recalls) / recalls[0])
+    bar_texts = shown(draw, at["About half"] - 0.2)
+    assert {f"{r:.0%}" for r in recalls} <= bar_texts
+    assert {"fainter  →  stronger", "shorter  →  longer"} <= bar_texts
+
+    share = f"{n['cnn_fp_accepted_centroid']} of {n['cnn_fp_accepted']}: light from"
+    assert not any(share in s for s in shown(draw, at["About half"] - 0.2))
+    revealed = shown(draw, at["which a light curve"] + 0.8)
+    assert any(share in s for s in revealed)
+    assert "a light curve alone\ncannot reveal this" in revealed
+    fig = style.new_figure(960, 540)
+    draw(fig, at["which a light curve"] + 0.8)
+    (dots,) = fig.findobj(lambda a: a.get_gid() == "fp_dots")
+    (rings,) = fig.findobj(lambda a: a.get_gid() == "fp_centroid")
+    assert len(dots.get_offsets()) == n["cnn_fp_accepted"]
+    assert len(rings.get_offsets()) == n["cnn_fp_accepted_centroid"]
+
+
+@needs_data
+def test_results_dev_scores_only_as_practice_groups():
+    ctx = make_ctx("08_results", width=960, height=540)
+    draw = scene_module("08_results").build(ctx)
+    n = ctx.numbers
+    dev = n["dev_full_pr_auc"]
+    at = cue_times(ctx, "It learned", "Retrained", "The gap")
+    dev_scores = {f"{dev[m][0]:.3f}" for m in ("cnn_full", "tabular_lc")}
+
+    learned = shown(draw, at["It learned"] + 1.0)
+    assert f"first: {n['n_dev_cnn']:,} of {n['n_dev']:,} (21%)" in learned
+    for frac in np.linspace(0.0, 0.999, 40):
+        t = frac * ctx.duration
+        texts = drawn_texts(draw, t)
+        assert not any("0.999" in s for s in texts), t          # never the leaked score
+        if dev_scores & shown(draw, t):
+            assert t > at["Retrained"]
+            assert {"Practice groups (development folds)",
+                    "practice groups (development folds)", "not the final exam"} <= shown(draw, t)
+    end = shown(draw, at["The gap"])
+    assert dev_scores <= end and "retrained on all of them" in end
+    assert "Retrained: practice groups (development folds)" in end
+
+
+# --- 09_meaning ---------------------------------------------------------------------------
+
+@needs_data
+def test_meaning_says_follow_up_not_discovery_and_the_readme_sentence():
+    meaning = scene_module("09_meaning")
+    ctx = make_ctx("09_meaning", width=960, height=540)
+    draw = meaning.build(ctx)
+    at = cue_times(ctx, "worth a follow-up", "not a discovery", "Next:")
+    before = shown(draw, at["worth a follow-up"] - 0.4)
+    assert "Worth a follow-up," not in before and "worth a follow-up" not in before
+    reading = shown(draw, at["worth a follow-up"] + 0.8)
+    assert {"Worth a follow-up,", "worth a follow-up"} <= reading
+    sentence = meaning.wrap_meaning(ctx.numbers["score_meaning"])
+    assert " ".join(sentence.split()) == ctx.numbers["score_meaning"]
+    for t in (at["not a discovery"] + 1.5, ctx.duration - 0.01):  # it stays to the end
+        assert {"Worth a follow-up,", "not a discovery.", sentence} <= shown(draw, t)
+
+
+@needs_data
+def test_meaning_next_steps_appear_as_spoken_and_no_score_is_shown():
+    meaning = scene_module("09_meaning")
+    ctx = make_ctx("09_meaning", width=960, height=540)
+    draw = meaning.build(ctx)
+    phrases = ("combine the two", "find more faint", "use pixel")
+    at = cue_times(ctx, *phrases)
+    steps = [meaning.wrap_step(s) for s in ctx.numbers["next_steps"]]
+    assert [" ".join(s.split()) for s in steps] == ctx.numbers["next_steps"]
+    for i, phrase in enumerate(phrases):
+        assert steps[i] not in shown(draw, at[phrase] - 0.5), phrase
+        assert set(steps[: i + 1]) <= shown(draw, at[phrase] + 0.8), phrase
+    for frac in np.linspace(0.0, 0.999, 15):                # the dial is a bare 0-1 scale
+        assert not any(re.search(r"\d\.\d", s) for s in drawn_texts(draw, frac * ctx.duration))
