@@ -95,6 +95,15 @@ def test_index_serves_html(client):
     assert r.status_code == 200 and b"<html" in r.data.lower()
 
 
+def test_checker_page_wires_up_assets(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "static/checker.js" in html and "static/charts.js" in html and "static/app.css" in html
+    assert "http://" not in html and "https://" not in html  # offline: nothing external
+    for path in ["/static/checker.js", "/static/charts.js", "/static/app.css"]:
+        r = client.get(path)
+        assert r.status_code == 200 and len(r.data) > 500
+
+
 def test_web_package_runs_no_model():
     web = REPO_ROOT / "src" / "exoplanet" / "web"
     src = "".join(p.read_text(encoding="utf-8") for p in Path(web).glob("*.py"))
