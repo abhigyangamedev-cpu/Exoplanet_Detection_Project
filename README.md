@@ -97,6 +97,31 @@ Downloaded data (`data/`), trained models (`models/`) and run outputs (`outputs/
 generated locally and are not committed. Generated reports that are worth keeping are copied
 into `docs/`.
 
+## Model checker website
+
+A local website for checking the models one KOI at a time: pick any labelled KOI, see each
+model's score and verdict, and see whether it was right or wrong against the true label. The
+Report tab shows `docs/results.md` and `docs/evaluation.md`.
+
+```bash
+pip install -e ".[web]"
+python scripts/serve.py          # opens http://127.0.0.1:8000
+```
+
+The site never runs a model; it reads the scores the pipeline saved, so what you see is an
+honest check:
+
+- **Development KOIs** show their *out-of-fold* score, from the fold model that never saw
+  that star during training.
+- **Test KOIs** show the *held-out test* score saved when the test set was scored once.
+  Models that were never scored on the test set (for example `cnn_full`) show
+  "not scored on test" there.
+
+A model calls a KOI a planet when its score is at or above the threshold. The default is the
+threshold chosen on the development folds for 95% precision (`outputs/operating_points.md`);
+models without one start at 0.5. Move the slider to see the verdicts and the right/wrong
+counts change.
+
 ## Layout
 
 ```

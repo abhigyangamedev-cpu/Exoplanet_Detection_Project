@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block body_class %}checker-page{% endblock %}
+{% block content %}
+<div class="checker">
+  <aside class="rail" aria-label="Find a KOI">
+    <form class="filters" id="filters" onsubmit="return false">
+      <label class="field wide">
+        <span>Search</span>
+        <input type="search" id="q" placeholder="KOI name or KIC number" autocomplete="off">
+      </label>
+
+      <fieldset class="segmented">
+        <legend>Partition</legend>
+        <label><input type="radio" name="split" value="" checked><span>All</span></label>
+        <label><input type="radio" name="split" value="dev"><span>Dev</span></label>
+        <label><input type="radio" name="split" value="test"><span>Test</span></label>
+      </fieldset>
+
+      <fieldset class="segmented">
+        <legend>True label</legend>
+        <label><input type="radio" name="label" value="" checked><span>All</span></label>
+        <label><input type="radio" name="label" value="1"><span>Planet</span></label>
+        <label><input type="radio" name="label" value="0"><span>False positive</span></label>
+      </fieldset>
+
+      <label class="field wide">
+        <span>Model to check</span>
+        <select id="model"></select>
+      </label>
+
+      <label class="check wide">
+        <input type="checkbox" id="mistakes">
+        <span>Only this model's mistakes</span>
+      </label>
+
+      <fieldset class="range">
+        <legend>Signal-to-noise</legend>
+        <input type="number" id="snr_min" placeholder="min" min="0" step="any" aria-label="Minimum signal-to-noise">
+        <span aria-hidden="true">to</span>
+        <input type="number" id="snr_max" placeholder="max" min="0" step="any" aria-label="Maximum signal-to-noise">
+      </fieldset>
+
+      <fieldset class="range">
+        <legend>Period (days)</legend>
+        <input type="number" id="period_min" placeholder="min" min="0" step="any" aria-label="Minimum period in days">
+        <span aria-hidden="true">to</span>
+        <input type="number" id="period_max" placeholder="max" min="0" step="any" aria-label="Maximum period in days">
+      </fieldset>
+
+      <button type="button" class="link wide" id="clear">Clear filters</button>
+    </form>
+
+    <div class="tally" id="tally" aria-live="polite"></div>
+
+    <ul class="kois" id="kois" role="listbox" aria-label="Matching KOIs" tabindex="0"></ul>
+
+    <div class="pager">
+      <button type="button" id="prev">Previous</button>
+      <span id="page-info"></span>
+      <button type="button" id="next">Next</button>
+    </div>
+  </aside>
+
+  <main class="sheet" id="sheet" aria-live="polite">
+    <p class="empty" id="empty">Pick a KOI from the list to see what each model said about it.</p>
+  </main>
+</div>
+<div class="tooltip" id="tooltip" hidden></div>
+<script src="{{ url_for('static', filename='charts.js') }}"></script>
+<script src="{{ url_for('static', filename='checker.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}KOI model checker{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('checker') }}">Kepler KOI model checker</a>
+    <nav aria-label="Pages">
+      <a href="{{ url_for('checker') }}" {% if request.endpoint == 'checker' %}aria-current="page"{% endif %}>Checker</a>
+      <a href="{{ url_for('report_home') }}" {% if request.endpoint == 'report' %}aria-current="page"{% endif %}>Report</a>
+    </nav>
+  </header>
+  {% block content %}{% endblock %}
+</body>
+</html>
