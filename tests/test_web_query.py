@@ -117,3 +117,13 @@ def test_views_none_when_the_star_file_lacks_the_koi(store, config):
     z = dict(np.load(path))
     np.savez(path, **{k: v[:1] for k, v in z.items()})  # keep only K00003.01
     assert koi_views(store, config, "K00003.02") is None
+
+
+@pytest.mark.parametrize("q", ["KIC 1003", "kic1003", "KIC1003", " kic  1003 "])
+def test_search_accepts_the_kic_prefix_the_page_displays(store, q):
+    assert list_kois(store, base(store, q=q))["total"] == 2
+
+
+@pytest.mark.parametrize("q", ["K3.02", "k3.02", "K003.02"])
+def test_search_accepts_a_koi_name_without_zero_padding(store, q):
+    assert names(list_kois(store, base(store, q=q))) == ["K00003.02"]

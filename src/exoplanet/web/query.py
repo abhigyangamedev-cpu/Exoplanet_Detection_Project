@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,8 @@ NO_SCORE = "no score"
 SOURCES = {"dev": "out-of-fold", "test": "held-out test"}
 SNR = "koi_model_snr"
 PERIOD = "koi_period"
+_KIC = re.compile(r"KIC(\d+)")
+_KOI = re.compile(r"K(\d{1,5})(\.\d*)?")
 
 
 @dataclass(frozen=True)
@@ -64,12 +67,22 @@ def _in_range(values: pd.Series, low: float | None, high: float | None) -> pd.Se
 
 
 def _matches(kois: pd.DataFrame, q: str) -> pd.Series:
-    q = q.strip().upper()
+    """KOIs whose name contains ``q`` or whose KIC number starts with it.
+
+    Accepts what a person types or copies off the page: any case, "KIC 10797460", and a KOI
+    name without its zero padding ("K752.01" for K00752.01).
+    """
+    q = "".join(q.upper().split())
     if not q:
         return pd.Series(True, index=kois.index)
-    by_name = kois.index.to_series().str.contains(q, regex=False)
-    by_kic = kois["kepid"].astype(str).str.startswith(q)
-    return by_name | by_kic
+    names = kois.index.to_series()
+    kepids = kois["kepid"].astype(str)
+    if kic := _KIC.fullmatch(q):
+        return kepids.str.startswith(kic.group(1))
+    keep = names.str.contains(q, regex=False) | kepids.str.startswith(q)
+    if koi := _KOI.fullmatch(q):
+        keep |= names.str.startswith(f"K{int(koi.group(1)):05d}{koi.group(2) or ''}")
+    return keep
 
 
 def list_kois(store: Store, f: Filters, page: int = 1, page_size: int = 50) -> dict[str, Any]:

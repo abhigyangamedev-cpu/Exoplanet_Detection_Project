@@ -45,3 +45,36 @@ def test_starts_without_test_scores_or_operating_points(tmp_path):
     store = load_store(config)
     assert store.test_models == frozenset()
     assert set(store.thresholds.values()) == {0.5}
+
+
+def _outputs(config):
+    return config["paths"]["outputs_dir"]
+
+
+def test_extra_context_column_in_test_file_is_not_a_model(tmp_path):
+    import pandas as pd
+
+    config = make_project(tmp_path)
+    path = _outputs(config) / "evaluation_test_scores.csv"
+    pd.read_csv(path).assign(koi_duration=[1.7, 3.1]).to_csv(path, index=False)  # appended last
+    store = load_store(config)
+    assert store.test_models == frozenset({"tabular_lc", "cnn"})
+    assert "koi_duration" not in store.models
+
+
+def test_test_file_without_the_snr_column_still_loads(tmp_path):
+    import pandas as pd
+
+    config = make_project(tmp_path)
+    path = _outputs(config) / "evaluation_test_scores.csv"
+    pd.read_csv(path).drop(columns=["koi_model_snr"]).to_csv(path, index=False)
+    store = load_store(config)
+    assert store.test_models == frozenset({"tabular_lc", "cnn"})
+    assert store.kois.loc["K00001.01", "score_tabular_lc"] == pytest.approx(0.77)
+
+
+def test_oof_file_without_a_score_column_is_skipped(tmp_path):
+    config = make_project(tmp_path)
+    (_outputs(config) / "notes_oof.csv").write_text("kepoi_name,comment\nK00003.01,x\n", "utf-8")
+    (_outputs(config) / "empty_oof.csv").write_text("", "utf-8")
+    assert load_store(config).models == ["cnn_full", "tabular_lc", "cnn"]

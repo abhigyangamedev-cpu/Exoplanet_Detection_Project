@@ -9,6 +9,7 @@ there.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -32,8 +33,8 @@ THRESHOLD_TARGET = "precision 0.95"
 TEST_SCORES = "evaluation_test_scores.csv"
 OPERATING_POINTS = "operating_points.md"
 DEV_SECTION = "## Development folds"
-# The last non-score column of the test scores file; model columns follow it.
-LAST_CONTEXT_COLUMN = "koi_model_snr"
+# Columns of the test scores file that describe the KOI rather than score it.
+NOT_A_MODEL = frozenset({"kepid", LABEL, SPLIT, FOLD, "koi_disposition", *CONTEXT_COLUMNS})
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,19 @@ def parse_thresholds(text: str, target: str = THRESHOLD_TARGET) -> dict[str, flo
     return thresholds
 
 
+def _read_scores(path: Path) -> pd.DataFrame | None:
+    """A per-KOI score table indexed by KOI name; None if the file is absent or is not one."""
+    if not path.exists():
+        return None
+    try:
+        table = pd.read_csv(path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return None
+    if KOI not in table.columns:
+        return None
+    return table.drop_duplicates(KOI).set_index(KOI)
+
+
 def _order(models: set[str]) -> list[str]:
     first = [m for m in PREFERRED_MODELS if m in models]
     return first + sorted(models - set(first))
@@ -83,15 +97,16 @@ def load_store(config: dict[str, Any]) -> Store:
     built = {p.stem for p in views_dir.glob("*.npz")} if views_dir.exists() else set()
     kois["has_views"] = kois["kepid"].astype(str).isin(built)
 
-    oof = {
-        p.name.removesuffix("_oof.csv"): pd.read_csv(p).drop_duplicates(KOI).set_index(KOI)["score"]
-        for p in sorted(outputs.glob("*_oof.csv"))
-    }
-    test_path = outputs / TEST_SCORES
-    test = pd.DataFrame()
-    if test_path.exists():
-        table = pd.read_csv(test_path).drop_duplicates(KOI).set_index(KOI)
-        test = table.iloc[:, list(table.columns).index(LAST_CONTEXT_COLUMN) + 1 :]
+    oof = {}
+    for path in sorted(outputs.glob("*_oof.csv")):
+        scores = _read_scores(path)
+        if scores is not None and "score" in scores.columns:
+            oof[path.name.removesuffix("_oof.csv")] = scores["score"]
+    test = _read_scores(outputs / TEST_SCORES)
+    if test is None:
+        test = pd.DataFrame()
+    # Model columns are whatever is not a known context column, wherever it sits in the file.
+    test = test[[c for c in test.columns if c not in NOT_A_MODEL]]
 
     is_dev = kois[SPLIT] == "dev"
     models = _order(set(oof) | set(test.columns))
