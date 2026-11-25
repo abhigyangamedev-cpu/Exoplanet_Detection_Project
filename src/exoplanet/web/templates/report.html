@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} · KOI model checker{% endblock %}
+{% block body_class %}report-page{% endblock %}
+{% block content %}
+<div class="report">
+  <aside class="report-side">
+    <nav class="tabs" aria-label="Report documents">
+      {% for name, label in tabs %}
+      <a href="{{ url_for('report', name=name) }}" {% if name == current %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <nav class="toc" aria-label="Contents">
+      <h2>Contents</h2>
+      <ul>
+        {% for h in doc.toc if h.level in (2, 3) %}
+        <li class="l{{ h.level }}"><a href="#{{ h.id }}">{{ h.text }}</a></li>
+        {% endfor %}
+      </ul>
+    </nav>
+  </aside>
+  <main class="doc">{{ doc.html | safe }}</main>
+</div>
+{% endblock %}

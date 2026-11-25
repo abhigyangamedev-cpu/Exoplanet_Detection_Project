@@ -8,10 +8,21 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 
+from exoplanet.config import REPO_ROOT
 from exoplanet.data.splits import SPLIT
 from exoplanet.web.query import Filters, koi_detail, koi_views, list_kois
+from exoplanet.web.report import REPORT_TABS, render_doc
 from exoplanet.web.store import Store, load_store
 
 MAX_PAGE_SIZE = 200
@@ -84,6 +95,7 @@ def create_app(config: dict[str, Any]) -> Flask:
     app = Flask(__name__)
     store = load_store(config)
     app.config["STORE"] = store
+    docs_dir = config["paths"].get("docs_dir", REPO_ROOT / "docs")
 
     @app.errorhandler(BadRequest)
     def bad_request(error: BadRequest):
@@ -127,5 +139,21 @@ def create_app(config: dict[str, Any]) -> Flask:
         if detail is None:
             return jsonify(error=f"no labelled KOI named {name!r}"), 404
         return jsonify({**detail, "views": koi_views(store, config, name)})
+
+    @app.get("/report")
+    def report_home():
+        return redirect(url_for("report", name=REPORT_TABS[0][0]))
+
+    @app.get("/report/<name>")
+    def report(name: str):
+        name = name.removesuffix(".md")
+        doc = render_doc(docs_dir, name)
+        if doc is None:
+            abort(404)
+        return render_template("report.html", doc=doc, tabs=REPORT_TABS, current=name)
+
+    @app.get("/report/figures/<path:filename>")
+    def report_figure(filename: str):
+        return send_from_directory(docs_dir / "figures", filename)
 
     return app
