@@ -41,6 +41,21 @@ def test_list_uses_the_picked_model_and_its_default_threshold(client):
     assert (out["right"], out["wrong"]) == (1, 1)
 
 
+def test_field_returns_every_match_as_columns(client):
+    out = client.get("/api/field?split=dev").get_json()
+    assert set(out) == {"names", "label", "period", "snr", "score"}
+    assert len(out["names"]) == 4 and all(len(v) == 4 for v in out.values())
+    at = out["names"].index("K00003.02")
+    assert out["label"][at] == 1 and out["score"][at] == pytest.approx(0.40)
+    assert out["score"][out["names"].index("K00005.01")] is None  # no score, not NaN
+
+
+def test_field_ignores_mistakes_only_and_rejects_bad_params(client):
+    assert len(client.get("/api/field?split=dev&mistakes=1").get_json()["names"]) == 4
+    assert "NaN" not in client.get("/api/field").get_data(as_text=True)
+    assert client.get("/api/field?model=nope").status_code == 400
+
+
 def test_page_size_is_capped(client):
     out = client.get("/api/kois?page_size=100000").get_json()
     assert out["total"] == 6 and out["pages"] == 1
@@ -99,7 +114,8 @@ def test_checker_page_wires_up_assets(client):
     html = client.get("/").get_data(as_text=True)
     assert "static/checker.js" in html and "static/charts.js" in html and "static/app.css" in html
     assert "http://" not in html and "https://" not in html  # offline: nothing external
-    for path in ["/static/checker.js", "/static/charts.js", "/static/app.css"]:
+    assert "static/field.js" in html
+    for path in ["/static/checker.js", "/static/charts.js", "/static/field.js", "/static/app.css"]:
         r = client.get(path)
         assert r.status_code == 200 and len(r.data) > 500
 

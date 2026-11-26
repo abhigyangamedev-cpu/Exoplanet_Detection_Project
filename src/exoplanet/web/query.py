@@ -85,7 +85,8 @@ def _matches(kois: pd.DataFrame, q: str) -> pd.Series:
     return keep
 
 
-def list_kois(store: Store, f: Filters, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+def _select(store: Store, f: Filters) -> pd.DataFrame:
+    """The KOIs that pass every filter except mistakes-only, sorted by name."""
     kois = store.kois
     keep = _matches(kois, f.q)
     if f.split is not None:
@@ -96,8 +97,33 @@ def list_kois(store: Store, f: Filters, page: int = 1, page_size: int = 50) -> d
         keep &= _in_range(kois[SNR], f.snr_min, f.snr_max)
     if PERIOD in kois:
         keep &= _in_range(kois[PERIOD], f.period_min, f.period_max)
+    return kois[keep].sort_index()
 
-    rows = kois[keep].sort_index()
+
+def field_points(store: Store, f: Filters) -> dict[str, list]:
+    """Every matching KOI as parallel columns, for the map of period against signal-to-noise.
+
+    The threshold and mistakes-only are left to the page, so moving the threshold recolours
+    the map without another request.
+    """
+    rows = _select(store, f)
+
+    def column(name: str) -> list[float | None]:
+        if name not in rows:
+            return [None] * len(rows)
+        return [_number(v) for v in rows[name]]
+
+    return {
+        "names": list(rows.index),
+        "label": [int(v) for v in rows[LABEL]],
+        "period": column(PERIOD),
+        "snr": column(SNR),
+        "score": column(score_column(f.model)),
+    }
+
+
+def list_kois(store: Store, f: Filters, page: int = 1, page_size: int = 50) -> dict[str, Any]:
+    rows = _select(store, f)
     score = rows[score_column(f.model)]
     scored = score.notna()
     verdict = (score >= f.threshold).astype(int)

@@ -98,7 +98,13 @@
           d += `${pen ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
           pen = true;
         });
-        svg.appendChild(el("path", { d, fill: "none", stroke: s.color, "stroke-width": 1.5, "stroke-linejoin": "round" }));
+        const path = el("path", { d, fill: "none", stroke: s.color, "stroke-width": 1.5, "stroke-linejoin": "round" });
+        if (options.animate) {
+          // pathLength 1 lets the stylesheet trace the curve without measuring it.
+          path.setAttribute("pathLength", "1");
+          path.setAttribute("class", "trace");
+        }
+        svg.appendChild(path);
       }
     }
 
