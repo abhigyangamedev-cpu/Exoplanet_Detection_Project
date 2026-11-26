@@ -21,7 +21,7 @@ from flask import (
 
 from exoplanet.config import REPO_ROOT
 from exoplanet.data.splits import SPLIT
-from exoplanet.web.query import Filters, koi_detail, koi_views, list_kois
+from exoplanet.web.query import Filters, field_points, koi_detail, koi_views, list_kois
 from exoplanet.web.report import REPORT_TABS, render_doc
 from exoplanet.web.store import Store, load_store
 
@@ -131,6 +131,12 @@ def create_app(config: dict[str, Any]) -> Flask:
             raise BadRequest("no model scores found in the outputs directory")
         page_size = min(_int("page_size", 50), MAX_PAGE_SIZE)
         return jsonify(list_kois(store, _filters(store), _int("page", 1), page_size))
+
+    @app.get("/api/field")
+    def field():
+        if not store.models:
+            raise BadRequest("no model scores found in the outputs directory")
+        return jsonify(field_points(store, _filters(store)))
 
     @app.get("/api/koi/<name>")
     def koi(name: str):

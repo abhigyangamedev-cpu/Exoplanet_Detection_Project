@@ -8,7 +8,12 @@
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <header class="topbar">
-    <a class="brand" href="{{ url_for('checker') }}">Kepler KOI model checker</a>
+    <a class="brand" href="{{ url_for('checker') }}">
+      <svg viewBox="0 0 40 16" width="40" height="16" aria-hidden="true">
+        <path d="M1 4H13C16 4 15 12 18 12H22C25 12 24 4 27 4H39" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>Kepler KOI model checker</span>
+    </a>
     <nav aria-label="Pages">
       <a href="{{ url_for('checker') }}" {% if request.endpoint == 'checker' %}aria-current="page"{% endif %}>Checker</a>
       <a href="{{ url_for('report_home') }}" {% if request.endpoint == 'report' %}aria-current="page"{% endif %}>Report</a>

@@ -1,10 +1,11 @@
-// The checker page: filter the KOI list, pick one, compare each model's verdict to the truth.
+// The checker page: a map of every KOI and a filtered list; pick one to compare each model's
+// verdict with the truth.
 (function () {
   "use strict";
 
   const PAGE_SIZE = 50;
   const TEXT_FIELDS = ["q", "snr_min", "snr_max", "period_min", "period_max"];
-  const SERIES = { first: "#2a6fdb", second: "#d9730d" };
+  const SERIES = { first: "#8fb8ff", second: "#ffb25e" };
   const LABELS = { 1: "Confirmed planet", 0: "False positive" };
   const SHORT_LABELS = { 1: "planet", 0: "false positive" };
   const CATALOGUE = [
@@ -14,9 +15,28 @@
     ["koi_model_snr", "Signal-to-noise", "", 1],
     ["koi_duration", "Transit duration", "hours", 2],
   ];
+  // The groups of dots on the map, in the order the legend lists them.
+  const GROUPS = [
+    ["missed", "Missed planets"],
+    ["alarm", "False alarms"],
+    ["planet", "Planets called right"],
+    ["fp", "False positives called right"],
+    ["none", "No score"],
+  ];
 
   const $ = (id) => document.getElementById(id);
-  const state = { models: [], thresholds: {}, defaults: {}, page: 1, selected: null, list: null, detail: null };
+  const state = {
+    models: [],
+    thresholds: {},
+    defaults: {},
+    page: 1,
+    selected: null,
+    list: null,
+    detail: null,
+    field: null,
+    hiddenGroups: new Set(),
+  };
+  let field = null;
 
   function make(tag, className, text) {
     const node = document.createElement(tag);
@@ -44,6 +64,10 @@
 
   function model() {
     return $("model").value;
+  }
+
+  function typing(event) {
+    return /^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName);
   }
 
   function filterParams() {
@@ -129,6 +153,9 @@
       li.appendChild(make("span", "truth", SHORT_LABELS[item.label]));
       li.appendChild(mark(item.correct));
       li.addEventListener("click", () => select(item.kepoi_name));
+      // Pointing at a row rings its dot on the map.
+      li.addEventListener("pointerenter", () => field.setHoverName(item.kepoi_name));
+      li.addEventListener("pointerleave", () => field.setHoverName(null));
       ul.appendChild(li);
     }
     $("page-info").textContent = `Page ${list.page} of ${list.pages}`;
@@ -161,9 +188,111 @@
     params.set("page", state.page);
     params.set("page_size", PAGE_SIZE);
     latestQuery = params.toString();
+    loadField();
     return loadList();
   };
   const refreshListSoon = debounce(refreshList, 250);
+
+  // ---- the map ------------------------------------------------------------------------
+
+  let latestField = null;
+  async function loadField() {
+    // The threshold, the page and mistakes-only are applied here, so they need no new request.
+    const params = filterParams();
+    params.delete("mistakes");
+    const key = params.toString();
+    if (key === latestField) return;
+    latestField = key;
+    try {
+      const data = await getJson(`api/field?${params}`);
+      if (key !== latestField) return;
+      state.field = data;
+      field.setData(data, model());
+      renderMapSummary();
+    } catch (error) {
+      if (key !== latestField) return;
+      latestField = null;
+      state.field = null;
+      $("legend").textContent = "";
+      $("map-summary").textContent = `Could not load the map: ${error.message}`;
+    }
+  }
+
+  function renderMapSummary() {
+    if (!state.field) return;
+    const c = field.counts();
+    const n = (value) => value.toLocaleString();
+    const right = c.planet + c.fp;
+    const judged = right + c.missed + c.alarm;
+    const total = judged + c.none;
+    const threshold = state.thresholds[model()].toFixed(3);
+    let text;
+    if (!total) {
+      text = "No KOIs match these filters. Loosen a filter or clear them.";
+    } else if (!judged) {
+      text = `${model()} has no saved score for any of these ${n(total)} KOIs.`;
+    } else {
+      text =
+        `${model()} gets ${n(right)} of ${n(judged)} scored KOIs right at threshold ${threshold}. ` +
+        `It misses ${n(c.missed)} ${c.missed === 1 ? "planet" : "planets"} and raises ` +
+        `${n(c.alarm)} false ${c.alarm === 1 ? "alarm" : "alarms"}.`;
+      if (c.unplaced) {
+        text += ` ${n(c.unplaced)} ${c.unplaced === 1 ? "is" : "are"} off the map: the catalogue has no period or signal-to-noise for ${c.unplaced === 1 ? "it" : "them"}.`;
+      }
+    }
+    $("map-summary").textContent = text;
+
+    const legend = $("legend");
+    legend.textContent = "";
+    const mistakesOnly = $("mistakes").checked;
+    for (const [group, title] of GROUPS) {
+      if (!c[group] && group === "none") continue;
+      const chip = make("button", "chip");
+      chip.type = "button";
+      const on = !state.hiddenGroups.has(group) && !(mistakesOnly && group !== "missed" && group !== "alarm");
+      chip.setAttribute("aria-pressed", String(on));
+      chip.disabled = mistakesOnly && group !== "missed" && group !== "alarm";
+      chip.appendChild(make("i", `swatch ${group}`));
+      chip.appendChild(make("span", "", title));
+      chip.appendChild(make("b", "num", n(c[group])));
+      chip.addEventListener("click", () => {
+        if (state.hiddenGroups.has(group)) state.hiddenGroups.delete(group);
+        else state.hiddenGroups.add(group);
+        field.setHidden(state.hiddenGroups);
+        renderMapSummary();
+      });
+      legend.appendChild(chip);
+    }
+  }
+
+  function showMap() {
+    $("sheet").hidden = true;
+    $("map").hidden = false;
+    field.resize();
+  }
+
+  function showSheet() {
+    $("map").hidden = true;
+    $("sheet").hidden = false;
+  }
+
+  function closeKoi() {
+    state.selected = null;
+    state.detail = null;
+    for (const li of $("kois").querySelectorAll(".koi")) li.setAttribute("aria-selected", "false");
+    field.setSelected(null);
+    syncUrl();
+    showMap();
+  }
+
+  function zoomTo(range) {
+    const round = (value) => String(Number(value.toPrecision(3)));
+    $("period_min").value = round(range.period[0]);
+    $("period_max").value = round(range.period[1]);
+    $("snr_min").value = round(range.snr[0]);
+    $("snr_max").value = round(range.snr[1]);
+    filtersChanged();
+  }
 
   // ---- one KOI ------------------------------------------------------------------------
 
@@ -176,6 +305,9 @@
   function track(row) {
     const wrap = make("div", "track");
     const threshold = state.thresholds[row.model];
+    const zone = make("i", "zone");
+    zone.style.left = `${threshold * 100}%`;
+    wrap.appendChild(zone);
     const tick = make("i", "threshold");
     tick.style.left = `${threshold * 100}%`;
     wrap.appendChild(tick);
@@ -188,6 +320,12 @@
     return wrap;
   }
 
+  function pickModel(name) {
+    if (name === model()) return;
+    $("model").value = name;
+    $("model").dispatchEvent(new Event("change"));
+  }
+
   function renderScores(detail) {
     const body = $("scores-body");
     if (!body) return;
@@ -195,7 +333,13 @@
     for (const row of detail.scores) {
       const tr = make("tr", row.model === model() ? "picked" : "");
       const cells = verdictCells(row, detail.label);
-      tr.appendChild(make("th", "", row.model)).setAttribute("scope", "row");
+      const name = tr.appendChild(make("th", ""));
+      name.setAttribute("scope", "row");
+      const pick = name.appendChild(make("button", "model-pick", row.model));
+      pick.type = "button";
+      pick.title = `Check ${row.model}`;
+      pick.setAttribute("aria-pressed", String(row.model === model()));
+      pick.addEventListener("click", () => pickModel(row.model));
       tr.appendChild(make("td", "track-cell")).appendChild(track(row));
       tr.appendChild(make("td", "num", row.score === null ? "—" : row.score.toFixed(3)));
       tr.appendChild(make("td", row.score === null ? "muted" : "", cells.verdict));
@@ -230,7 +374,7 @@
     const note = meta.threshold_is_default
       ? "Default 0.500: no dev-chosen threshold is saved for this model."
       : `Default ${meta.threshold.toFixed(3)}: chosen on dev folds for 95% precision.`;
-    $("threshold-note").textContent = note;
+    $("threshold-note").textContent = `At or above the threshold the model says planet. ${note}`;
     $("threshold-reset").disabled = state.thresholds[name] === state.defaults[name];
   }
 
@@ -253,7 +397,8 @@
     return host;
   }
 
-  function renderCharts() {
+  // animate: trace the global view once when a KOI opens, not on every resize.
+  function renderCharts(animate) {
     const detail = state.detail;
     const charts = $("charts");
     if (!detail || !charts) return;
@@ -266,6 +411,7 @@
     const one = (name, values) => [{ name, color: SERIES.first, values }];
     Charts.draw(chartBlock(charts, "Global view: the whole orbit, folded"), {
       series: one("Flux", v.global_view), marks: "line", label: "Global view of the folded light curve",
+      animate: animate === true,
     });
     Charts.draw(chartBlock(charts, "Local view: around the transit"), {
       series: one("Flux", v.local_view), marks: "dots", label: "Local view around the transit",
@@ -289,6 +435,12 @@
   function renderDetail(detail) {
     const sheet = $("sheet");
     sheet.textContent = "";
+    sheet.scrollTop = 0;
+
+    const back = sheet.appendChild(make("button", "back", "Back to the map"));
+    back.type = "button";
+    back.title = "Back to the map (Esc)";
+    back.addEventListener("click", closeKoi);
 
     const head = sheet.appendChild(make("header", "koi-head"));
     head.appendChild(make("h1", "", detail.kepoi_name));
@@ -299,21 +451,6 @@
     truth.appendChild(make("strong", detail.label ? "planet" : "fp", LABELS[detail.label]));
 
     sheet.appendChild(make("p", "headline", "")).id = "headline";
-
-    const control = sheet.appendChild(make("div", "threshold-control"));
-    const label = control.appendChild(make("label", ""));
-    label.htmlFor = "threshold";
-    label.appendChild(document.createTextNode("Threshold for "));
-    label.appendChild(make("strong", "", "")).id = "threshold-name";
-    const slider = control.appendChild(make("input", ""));
-    Object.assign(slider, { type: "range", id: "threshold", min: 0, max: 1, step: 0.001 });
-    control.appendChild(make("output", "num", "")).id = "threshold-value";
-    const reset = control.appendChild(make("button", "link", "Reset to default"));
-    reset.type = "button";
-    reset.id = "threshold-reset";
-    control.appendChild(make("p", "muted note", "")).id = "threshold-note";
-    slider.addEventListener("input", () => setThreshold(parseFloat(slider.value)));
-    reset.addEventListener("click", () => setThreshold(state.defaults[model()]));
 
     const table = sheet.appendChild(make("table", "scores"));
     const headRow = table.appendChild(make("thead", "")).appendChild(make("tr", ""));
@@ -335,18 +472,17 @@
 
     sheet.appendChild(make("div", "charts", "")).id = "charts";
 
-    renderThreshold();
     renderScores(detail);
-    renderCharts();
+    renderCharts(true);
   }
 
   function setThreshold(value) {
     state.thresholds[model()] = value;
     state.page = 1;
-    if (state.detail) {
-      renderThreshold();
-      renderScores(state.detail);
-    }
+    renderThreshold();
+    field.setThreshold(value);
+    renderMapSummary();
+    if (state.detail) renderScores(state.detail);
     refreshListSoon();
   }
 
@@ -355,15 +491,25 @@
     for (const li of $("kois").querySelectorAll(".koi")) {
       li.setAttribute("aria-selected", String(li.dataset.name === name));
     }
+    field.setSelected(name);
     syncUrl();
+    if (!state.detail) {
+      $("sheet").textContent = "";
+      $("sheet").appendChild(make("p", "empty", `Opening ${name}…`));
+    }
+    showSheet();
     try {
       const detail = await getJson(`api/koi/${encodeURIComponent(name)}`);
       if (state.selected !== name) return;
       state.detail = detail;
       renderDetail(detail);
     } catch (error) {
+      if (state.selected !== name) return;
       state.detail = null;
       $("sheet").textContent = "";
+      const back = $("sheet").appendChild(make("button", "back", "Back to the map"));
+      back.type = "button";
+      back.addEventListener("click", closeKoi);
       $("sheet").appendChild(make("p", "empty error", `Could not open ${name}: ${error.message}`));
     }
   }
@@ -385,15 +531,23 @@
   }
 
   async function start() {
+    field = Field.create({
+      host: $("field"),
+      tooltip: $("tooltip"),
+      onPick: select,
+      onBrush: zoomTo,
+    });
+
     let meta;
     try {
       meta = await getJson("api/meta");
     } catch (error) {
-      $("empty").textContent = `Could not load the model list: ${error.message}`;
+      $("map-summary").textContent = `Could not load the model list: ${error.message}`;
       return;
     }
     if (!meta.models.length) {
-      $("empty").textContent = "No saved model scores were found in the outputs folder. Train and evaluate first.";
+      $("map-summary").textContent =
+        "No saved model scores were found in the outputs folder. Train and evaluate first.";
       return;
     }
     state.models = meta.models;
@@ -405,24 +559,34 @@
       $("model").appendChild(option);
     }
     readUrl();
+    renderThreshold();
+    field.setThreshold(state.thresholds[model()]);
+    field.setMistakesOnly($("mistakes").checked);
+    field.setSelected(state.selected);
 
     for (const id of TEXT_FIELDS) $(id).addEventListener("input", filtersChanged);
     for (const input of document.querySelectorAll('input[name="split"], input[name="label"]')) {
       input.addEventListener("change", filtersChanged);
     }
-    $("mistakes").addEventListener("change", filtersChanged);
-    $("model").addEventListener("change", () => {
+    $("mistakes").addEventListener("change", () => {
+      field.setMistakesOnly($("mistakes").checked);
+      renderMapSummary();
       filtersChanged();
-      if (state.detail) {
-        renderThreshold();
-        renderScores(state.detail);
-      }
     });
+    $("model").addEventListener("change", () => {
+      renderThreshold();
+      field.setThreshold(state.thresholds[model()]);
+      if (state.detail) renderScores(state.detail);
+      filtersChanged();
+    });
+    $("threshold").addEventListener("input", () => setThreshold(parseFloat($("threshold").value)));
+    $("threshold-reset").addEventListener("click", () => setThreshold(state.defaults[model()]));
     $("clear").addEventListener("click", () => {
       for (const id of TEXT_FIELDS) $(id).value = "";
       setRadio("split", "");
       setRadio("label", "");
       $("mistakes").checked = false;
+      field.setMistakesOnly(false);
       filtersChanged();
     });
     $("prev").addEventListener("click", () => {
@@ -438,7 +602,23 @@
       event.preventDefault();
       moveSelection(event.key === "ArrowDown" ? 1 : -1);
     });
-    window.addEventListener("resize", debounce(renderCharts, 150));
+    document.addEventListener("keydown", (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === "/" && !typing(event)) {
+        event.preventDefault();
+        $("q").focus();
+        $("q").select();
+      } else if (event.key === "Escape" && state.selected && !typing(event)) {
+        closeKoi();
+      }
+    });
+    window.addEventListener(
+      "resize",
+      debounce(() => {
+        field.resize();
+        renderCharts(false);
+      }, 150)
+    );
 
     await refreshList();
     if (state.selected) select(state.selected);

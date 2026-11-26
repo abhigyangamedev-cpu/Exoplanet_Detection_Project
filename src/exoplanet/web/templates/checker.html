@@ -4,7 +4,7 @@
 <div class="checker">
   <aside class="rail" aria-label="Find a KOI">
     <form class="filters" id="filters" onsubmit="return false">
-      <label class="field wide">
+      <label class="field-input wide">
         <span>Search</span>
         <input type="search" id="q" placeholder="KOI name or KIC number" autocomplete="off">
       </label>
@@ -23,7 +23,7 @@
         <label><input type="radio" name="label" value="0"><span>False positive</span></label>
       </fieldset>
 
-      <label class="field wide">
+      <label class="field-input wide">
         <span>Model to check</span>
         <select id="model"></select>
       </label>
@@ -61,11 +61,35 @@
     </div>
   </aside>
 
-  <main class="sheet" id="sheet" aria-live="polite">
-    <p class="empty" id="empty">Pick a KOI from the list to see what each model said about it.</p>
-  </main>
+  <div class="stage">
+    <div class="threshold-control">
+      <label for="threshold">Threshold for <strong id="threshold-name"></strong></label>
+      <input type="range" id="threshold" min="0" max="1" step="0.001">
+      <output class="num" id="threshold-value" for="threshold"></output>
+      <button type="button" class="link" id="threshold-reset">Reset to default</button>
+      <p class="muted note" id="threshold-note"></p>
+    </div>
+
+    <main class="map" id="map">
+      <header class="map-head">
+        <h1>Every KOI, by orbit and signal strength</h1>
+        <p id="map-summary" aria-live="polite">Loading the KOIs…</p>
+      </header>
+      <div class="legend" id="legend" role="group" aria-label="Show or hide groups of KOIs"></div>
+      <div class="field" id="field">
+        <canvas class="base"></canvas>
+        <canvas class="over" role="img" aria-label="Scatter plot of KOIs: orbital period against signal-to-noise, coloured by whether the model was right"></canvas>
+        <div class="brush" hidden></div>
+        <p class="field-empty" hidden>No KOIs to plot for these filters. Loosen a filter or clear them.</p>
+      </div>
+      <p class="hint muted">Click a dot to open that KOI. Drag across the map to zoom in on a range of periods and signal strengths. Press / to search.</p>
+    </main>
+
+    <main class="sheet" id="sheet" aria-live="polite" hidden></main>
+  </div>
 </div>
 <div class="tooltip" id="tooltip" hidden></div>
 <script src="{{ url_for('static', filename='charts.js') }}"></script>
+<script src="{{ url_for('static', filename='field.js') }}"></script>
 <script src="{{ url_for('static', filename='checker.js') }}"></script>
 {% endblock %}
